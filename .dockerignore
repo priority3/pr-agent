@@ -1,0 +1,10 @@
+# 构建镜像时排除:依赖/产物就地重装重建,密钥与本地数据不进镜像。
+node_modules
+client/dist
+data
+.env
+.env.local
+.git
+.gitignore
+*.log
+.DS_Store

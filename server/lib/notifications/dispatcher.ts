@@ -7,7 +7,7 @@
  * 与源仓的差异(design §4 可插拔化):
  * - 渠道从硬编 pushplus 改为 NotificationChannel 接口(resolveChannel 选当前可用渠道)。
  * - 无可用渠道(PUSHPLUS_TOKEN 未配)→ 优雅跳过并 warn,不认领、不抛错、不误标 failed。
- * - 链接从 admin app_settings 改为 env(PUBLIC_BASE_URL + PR_CHAT_TOKEN)构造,去 razet.me 硬编。
+ * - 链接从 admin app_settings 改为 env(PUBLIC_BASE_URL + PR_CHAT_TOKEN)构造,去掉原硬编回退域名。
  */
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 

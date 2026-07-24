@@ -29,7 +29,7 @@ const pr = new Hono()
 
 // ── 对话(H5)──────────────────────────────────────────────────────────
 
-// SSE 响应头:no-transform + X-Accel-Buffering 防隧道/代理缓冲(已验证能穿隧道增量到达)。
+// SSE 响应头:no-transform + X-Accel-Buffering 防反向代理/网关缓冲(已验证能穿反向代理增量到达)。
 const SSE_HEADERS = {
   'Cache-Control': 'no-cache, no-transform',
   Connection: 'keep-alive',
@@ -79,7 +79,7 @@ pr.post('/chat', withPrChatAuth, async c => {
           closed = true // 客户端断开后 enqueue 会抛,置位后停止转发(服务端继续算完并落库)
         }
       }
-      // 思考间隙可能超过隧道 ~100s 空闲切断,15s 心跳保活
+      // 思考间隙可能超过反向代理默认空闲超时(常见 ~100s),15s 心跳保活
       const keepAlive = setInterval(() => {
         if (closed) return
         try {

@@ -175,7 +175,7 @@ export async function callPrModel(
   const turns: PrModelMessage[] = typeof input === 'string' ? [{ role: 'user', content: input }] : input
 
   if (settings.ANTHROPIC_API_KEY) {
-    // Reason: 主力模型不一定支持图片(如 mimo-v2.5-pro 遇图直接 404),带图请求切
+    // Reason: 主力模型不一定支持图片(部分模型遇图直接 404),带图请求切
     // ANTHROPIC_VISION_MODEL;走设置而非写死模型名,后续换模型组合零代码。
     const textModel = settings.PR_REVIEW_MODEL || settings.ANTHROPIC_MODEL || DEFAULT_CLAUDE_MODEL
     const model =
@@ -184,8 +184,8 @@ export async function callPrModel(
       apiKey: settings.ANTHROPIC_API_KEY,
       ...(settings.ANTHROPIC_BASE_URL && { baseURL: settings.ANTHROPIC_BASE_URL }),
       defaultHeaders: { 'anthropic-beta': ANTHROPIC_BETA },
-      // Reason: FC 网关会偶发挂起(实测单请求吊 296s),SDK 默认 timeout 10 分钟——
-      // 请求被吊死时 Cloudflare 隧道 ~100s 就切断客户端,H5 只看到"网络出错"。
+      // Reason: 部分第三方网关会偶发挂起(实测单请求吊 296s),SDK 默认 timeout 10 分钟——
+      // 请求被吊死时反向代理常在 ~100s 就切断客户端,H5 只看到"网络出错"。
       // 单次请求 60s 封顶(haiku 500 token 正常 <15s),重试交给上层降级链。
       timeout: 60_000,
       maxRetries: 1,
@@ -212,7 +212,7 @@ export async function callPrModel(
     let useTools = Boolean(opts.tools?.length && opts.executeTool)
     let useCache = true
     // 置位后 buildParams 追加 tool_choice:'none',协议层禁止模型再发起 tool_use,逼其产出正文。
-    // Reason: 软 error tool_result 只是"请"模型收口,grok 系模型会把它当工具失败而重试 → 空转到轮次耗尽报错。
+    // Reason: 软 error tool_result 只是"请"模型收口,某些网关的模型会把它当工具失败而重试 → 空转到轮次耗尽报错。
     let forceFinalAnswer = false
     const tools: Anthropic.Tool[] | undefined = useTools
       ? opts.tools!.map(tool => ({
@@ -224,7 +224,7 @@ export async function callPrModel(
     const maxToolRounds = opts.maxToolRounds ?? 3
 
     // system 挂缓存断点:tools + system 是跨轮/跨会话的稳定前缀,命中后按 0.1 倍计费。
-    // Reason: stream:false 必须显式传——部分网关(实测 grok 系)不带该字段默认回 SSE,
+    // Reason: stream:false 必须显式传——部分网关不带该字段默认回 SSE,
     // SDK 会把整个流当字符串返回,content 解析直接崩;官方 API 对显式 false 无感。
     const buildParams = (): Anthropic.MessageCreateParamsNonStreaming => ({
       model,
@@ -242,7 +242,7 @@ export async function callPrModel(
     // Agent 循环:模型要调工具 → 本地执行 → 结果喂回 → 直到产出正式回答。
     // 注意:消息里一旦出现 tool_use 块,后续请求必须继续带 tools 参数,不能删。
     // 所以轮次耗尽时不去掉 tools,而是置 forceFinalAnswer → 用 tool_choice:'none' 硬禁调用逼模型作答
-    // (只塞文本 tool_result "请直接回答" 是软约束,grok 系模型会无视并重试,故改硬约束)。
+    // (只塞文本 tool_result "请直接回答" 是软约束,某些网关的模型会无视并重试,故改硬约束)。
     // trace 里放消息预览:文本原样、tool_result 摘要、图片等块只留类型标记(base64 绝不入 trace)
     const previewMessage = (message: Anthropic.MessageParam): string =>
       clip(
@@ -359,7 +359,7 @@ export async function callPrModel(
         for (const block of toolUseBlocks) {
           let result: string
           if (exhausted) {
-            // 用正常文本而非 error:grok 系模型会把 error 当"工具失败"而重试;下一轮已 tool_choice:'none' 兜底。
+            // 用正常文本而非 error:某些网关的模型会把 error 当"工具失败"而重试;下一轮已 tool_choice:'none' 兜底。
             result = '已获取足够信息,请立即基于以上结果用最终结论直接回答用户,不要再调用任何工具。'
           } else {
             try {

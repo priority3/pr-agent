@@ -5,7 +5,7 @@
  * buildPushPlusHtml。pushplus.plus 是 China-only 的微信/邮件/短信推送服务,故设为可选:
  * 未配置 PUSHPLUS_TOKEN 时 getPushPlusChannel() 返回 null,派发器优雅跳过。
  *
- * 剥离(design §7):原 buildPushPlusHtml 的回退域 runpaceflow-admin.razet.me 已去除,
+ * 剥离(design §7):原 buildPushPlusHtml 硬编的回退域名已去除,
  * 改由 NotificationMessage.link(派发器按 PUBLIC_BASE_URL + PR_CHAT_TOKEN 构造)注入。
  */
 import type { NotificationChannel, NotificationMessage, NotificationSendResult } from './types'

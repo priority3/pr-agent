@@ -26,6 +26,15 @@ export function formatDateTime(value?: string | number | Date | null) {
 }
 
 /**
+ * 计算配速（秒/公里）。
+ * 从源仓 lib/pace/calculator.ts 搬来,供 ingest processor 算平均/分段配速用。
+ */
+export function calculatePace(distance: number, duration: number): number {
+  if (distance <= 0) return 0
+  return (duration / distance) * 1000 // 秒/公里
+}
+
+/**
  * 计算两个坐标点之间的距离（米），使用 Haversine 公式。
  * 从源仓 sync/parser.ts 搬来,供 processor 生成 split / 轨迹距离用。
  */

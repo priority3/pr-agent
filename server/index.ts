@@ -3,6 +3,7 @@ import { serveStatic } from 'hono/bun'
 
 import { ensureDatabaseReady } from '@/bootstrap'
 import { startScheduler } from '@/lib/scheduler'
+import activitiesRoutes from '@/routes/activities'
 import authRoutes from '@/routes/auth'
 import healthRoutes from '@/routes/health'
 import prRoutes from '@/routes/pr'
@@ -19,6 +20,7 @@ app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : 'In
 app.route('/api/auth', authRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
+app.route('/api/activities', activitiesRoutes)
 
 // 静态资源(Vite 多入口构建产物)。两个前端入口:/pr → H5 对话,/dashboard → mini-admin。
 // API 路由已在前,未命中才落到这里。/ 默认进 dashboard;共享 assets(/assets/*、/pr-logo.png 等)

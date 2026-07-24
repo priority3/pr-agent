@@ -18,9 +18,13 @@ app.route('/api/auth', authRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 
-// 静态资源(client/dist)。SPA 回退:未命中的路径交给 index.html。
+// 静态资源(Vite 多入口构建产物)。两个前端入口:/pr → H5 对话,/dashboard → mini-admin。
+// API 路由已在前,未命中才落到这里。/ 默认进 dashboard;共享 assets(/assets/*、/pr-logo.png 等)
+// 由通配 serveStatic 从 client/dist 提供。
+app.get('/', serveStatic({ path: './client/dist/dashboard/index.html' }))
+app.get('/pr', serveStatic({ path: './client/dist/pr/index.html' }))
+app.get('/dashboard', serveStatic({ path: './client/dist/dashboard/index.html' }))
 app.use('/*', serveStatic({ root: './client/dist' }))
-app.get('/*', serveStatic({ path: './client/dist/index.html' }))
 
 const port = Number(process.env.PORT ?? 3030)
 console.log(`[server] pr-agent listening on :${port}`)

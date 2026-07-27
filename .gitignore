@@ -1,6 +1,7 @@
 node_modules/
 client/dist/
 data/
+eval-runs/
 *.log
 .env
 .env.local

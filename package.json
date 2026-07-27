@@ -8,7 +8,9 @@
     "dev:client": "vite --config client/vite.config.ts",
     "build": "vite build --config client/vite.config.ts",
     "start": "bun run server/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "bun run scripts/eval/run.ts",
+    "eval:seed": "bun run scripts/eval/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

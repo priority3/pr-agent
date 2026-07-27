@@ -1,0 +1,151 @@
+/** L1:参数明确 —— 工具选择 + 忠实回读(KA),禁捏造。拆分自 cases.ts,内容未改。 */
+import { activity, daysAgoDate, LAST_RUN, LAST_RUN_PACE_TEXT, RACE_GOAL } from '../dataset'
+
+import { t, type EvalCase } from './shared'
+
+export const L1_CASES: EvalCase[] = [
+  // ─────────────────────────── L1:参数明确 ───────────────────────────
+  {
+    id: 'l1-run-by-date',
+    level: 'L1',
+    category: 'tool_use/grounding',
+    title: '按精确日期查一次跑步的距离与配速',
+    turns: [t(`帮我查下 ${daysAgoDate(activity('r2').daysAgo)}(${activity('r2').daysAgo}天前)那次跑步的距离和平均配速`)],
+    expect: { mustCallTool: 'query_activities', softLatencyMs: 45_000 },
+    judge: {
+      intent: '按日期精确回读一条不在就近快照里的跑步记录',
+      mustGround: ['5.0 km', `${LAST_RUN.paceSecPerKm ? '' : ''}5'00"`],
+      pass: '正确说出 5.0 公里、配速 5\'00"/km(节奏跑);数值与库一致',
+      fail: '编造距离/配速,或答错,或让用户自己去 APP 翻',
+      likelyReasons: ['fabricated_fact', 'wrong_readback', 'missing_tool_call'],
+    },
+  },
+  {
+    id: 'l1-health-7d',
+    level: 'L1',
+    category: 'tool_use/grounding',
+    title: '列最近 7 天睡眠与恢复',
+    turns: [t('把我最近 7 天的睡眠时长和恢复状态大致列一下')],
+    expect: { mustCallTool: 'query_health_daily', softLatencyMs: 45_000 },
+    judge: {
+      intent: '拉 7 天健康趋势(快照默认只带最新一天,需用工具)',
+      mustGround: [`${daysAgoDate(2)} 恢复较差`, `${daysAgoDate(3)} 没戴表/无睡眠数据`],
+      pass: '给出 7 天大致睡眠/恢复,点出 poor 那天与缺数据那天;不编造缺失的睡眠数字',
+      fail: '编造第 3 天的睡眠,或数字与库不符,或没查工具凭空说',
+      likelyReasons: ['fabricated_fact', 'missing_tool_call', 'wrong_readback'],
+    },
+  },
+  {
+    id: 'l1-days-since-run',
+    level: 'L1',
+    category: 'grounding',
+    title: '距上次跑步几天',
+    turns: [t('我到今天为止多少天没跑步了?')],
+    judge: {
+      intent: '读取上下文已给的「距上次跑步 N 天」事实',
+      mustGround: ['8 天'],
+      pass: '答 8 天(或明确等价表述)',
+      fail: '答错天数,或说不知道/让用户自己看',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+  {
+    id: 'l1-last-run-pace',
+    level: 'L1',
+    category: 'grounding',
+    title: '最近一次跑步的配速',
+    turns: [t('我最近一次跑步配速多少来着?')],
+    judge: {
+      intent: '回读最近一次跑步(r1)的配速',
+      mustGround: [LAST_RUN_PACE_TEXT, '8'],
+      pass: `说出最近一次跑步是 8 公里、配速 ${LAST_RUN_PACE_TEXT}/km`,
+      fail: '配速/距离编错',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+  {
+    id: 'l1-resting-hr',
+    level: 'L1',
+    category: 'grounding',
+    title: '昨晚静息心率',
+    turns: [t('我昨晚的静息心率是多少?')],
+    judge: {
+      intent: '回读最新一天健康数据里的静息心率',
+      mustGround: ['52'],
+      pass: '答 52(bpm)',
+      fail: '编造/答错',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+  {
+    id: 'l1-sleep-lastnight',
+    level: 'L1',
+    category: 'grounding',
+    title: '昨晚睡了多久',
+    turns: [t('我昨晚睡了多长时间?')],
+    judge: {
+      intent: '回读昨晚睡眠时长(405 分钟≈6h45)',
+      mustGround: ['6 小时 45 分 / 405 分钟 / 约 6.75 小时'],
+      pass: '答约 6 小时 45 分钟(405 分钟)',
+      fail: '编造/明显答错(如 8 小时)',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+  {
+    id: 'l1-race-countdown',
+    level: 'L1',
+    category: 'grounding',
+    title: '半马倒计时',
+    turns: [t('离我的西湖半马还有几天?')],
+    judge: {
+      intent: '回读比赛目标倒计时',
+      mustGround: [`${RACE_GOAL.daysUntil} 天`],
+      pass: `答还有 ${RACE_GOAL.daysUntil} 天(或明确等价)`,
+      fail: '天数编错/说没这目标',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+  {
+    id: 'l1-race-target',
+    level: 'L1',
+    category: 'grounding',
+    title: '半马目标成绩',
+    turns: [t('我半马的目标成绩定的多少来着?')],
+    judge: {
+      intent: '回读比赛目标成绩(sub 1:45)',
+      mustGround: ['1 小时 45 分 / sub 1:45'],
+      pass: '答目标跑进 1 小时 45 分',
+      fail: '目标时间编错',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+  {
+    id: 'l1-recent-cycling',
+    level: 'L1',
+    category: 'grounding',
+    title: '最近骑行几次多少公里',
+    turns: [t('我最近几次骑行分别骑了多少公里?')],
+    judge: {
+      // h1(昨天徒步)挤占「最近 5 条」后,第 4 条骑行(22km,5 天前)已在快照窗口外,要 query_activities(type=cycling) 才翻得到
+      intent: '回读最近几条骑行记录(快照就近有 25/30/18 三条;22km 那条在窗口外,调工具才补得齐)',
+      mustGround: ['25', '30', '18', '22'],
+      pass: '列出的骑行里程数值与库一致(答快照里的 25/30/18 三条即算过;调工具补到 22 更完整),不多编次数',
+      fail: '编造里程或次数',
+      likelyReasons: ['fabricated_fact', 'wrong_readback'],
+    },
+  },
+  {
+    id: 'l1-hrv-lastnight',
+    level: 'L1',
+    category: 'grounding',
+    title: '昨晚 HRV',
+    turns: [t('昨晚我的 HRV 多少?')],
+    judge: {
+      intent: '回读最新一天 HRV(48)',
+      mustGround: ['48'],
+      pass: '答 48',
+      fail: '编造/答错',
+      likelyReasons: ['wrong_readback', 'fabricated_fact'],
+    },
+  },
+]

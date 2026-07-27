@@ -2,6 +2,7 @@
 node_modules
 client/dist
 data
+eval-runs
 .env
 .env.local
 .git

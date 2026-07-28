@@ -4,12 +4,13 @@
  * MVP 用坐标输入框 + 推导预览「采用为显式值」代替地图选点。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Check, Crosshair, MapPin, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, Crosshair, MapPin, Trash2 } from 'lucide-react'
 
+import { failureMessage, isUnauthorized, jsonBody } from '../../lib/api'
 import { cn, formatDateTime } from '../../lib/utils'
 import { useToast } from '../../components/ui/toast'
-
-import { LoadingState } from '../../components/shared'
+import { ErrorState, LoadingState, RefreshButton } from '../../components/shared'
+import { useApi } from '../session'
 
 interface ExplicitLocation {
   lat: number
@@ -31,11 +32,15 @@ const SOURCE_BADGE: Record<LocationState['source'], { label: string; cls: string
 }
 
 const API_PATH = '/api/pr/profile/home-location'
+// 采用推导坐标时给个可改的默认名,免得存成「未命名」还要用户自己补一遍(E10)。
+const DEFAULT_ADOPT_LABEL = '常跑地点'
 
 export function HomeLocationCard() {
+  const api = useApi()
   const { success, error: toastError } = useToast()
   const [state, setState] = useState<LocationState | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [latInput, setLatInput] = useState('')
@@ -53,25 +58,21 @@ export function HomeLocationCard() {
     setLabelInput(next.explicit?.label ?? '')
   }, [])
 
-  const fetchState = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async () => {
+    setRefreshing(true)
     try {
-      const res = await fetch(API_PATH, { cache: 'no-store' })
-      if (res.ok) {
-        applyState((await res.json()) as LocationState)
-        setLoadError(null)
-      } else {
-        setLoadError(`加载常跑地点失败 (HTTP ${res.status})`)
-      }
-    } catch (e) {
-      setLoadError(`加载常跑地点失败: ${e instanceof Error ? e.message : '网络错误'}`)
+      applyState(await api.json<LocationState>(API_PATH))
+      setLoadError(null)
+    } catch (error) {
+      if (!isUnauthorized(error)) setLoadError(failureMessage('加载常跑地点', error))
     }
     setLoading(false)
-  }, [applyState])
+    setRefreshing(false)
+  }, [api, applyState])
 
   useEffect(() => {
-    void Promise.resolve().then(fetchState)
-  }, [fetchState])
+    void Promise.resolve().then(load)
+  }, [load])
 
   async function save() {
     // 预检只为省一次往返,规则与 API 层一致;真正的防线在 API。
@@ -92,21 +93,11 @@ export function HomeLocationCard() {
     }
     setBusy(true)
     try {
-      const res = await fetch(API_PATH, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lng, ...(label ? { label } : {}) }),
-      })
-      if (res.ok) {
-        // PUT/DELETE 返回与 GET 同构的最新状态,直接落地,不再多打一次 GET。
-        applyState((await res.json()) as LocationState)
-        success('已保存常跑地点')
-      } else {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null
-        toastError(data?.error ?? `保存失败 (HTTP ${res.status})`)
-      }
-    } catch (e) {
-      toastError(`保存失败: ${e instanceof Error ? e.message : '网络错误'}`)
+      // PUT/DELETE 返回与 GET 同构的最新状态,直接落地,不再多打一次 GET。
+      applyState(await api.json<LocationState>(API_PATH, jsonBody('PUT', { lat, lng, ...(label ? { label } : {}) })))
+      success('已保存常跑地点')
+    } catch (error) {
+      if (!isUnauthorized(error)) toastError(failureMessage('保存', error))
     }
     setBusy(false)
   }
@@ -114,15 +105,10 @@ export function HomeLocationCard() {
   async function clearExplicit() {
     setBusy(true)
     try {
-      const res = await fetch(API_PATH, { method: 'DELETE' })
-      if (res.ok) {
-        applyState((await res.json()) as LocationState)
-        success('已清除，回退为按常跑路线推导')
-      } else {
-        toastError(`清除失败 (HTTP ${res.status})`)
-      }
-    } catch (e) {
-      toastError(`清除失败: ${e instanceof Error ? e.message : '网络错误'}`)
+      applyState(await api.json<LocationState>(API_PATH, { method: 'DELETE' }))
+      success('已清除，回退为按常跑路线推导')
+    } catch (error) {
+      if (!isUnauthorized(error)) toastError(failureMessage('清除', error))
     }
     setBusy(false)
   }
@@ -132,6 +118,9 @@ export function HomeLocationCard() {
     if (!state?.effective) return
     setLatInput(state.effective.lat.toFixed(5))
     setLngInput(state.effective.lng.toFixed(5))
+    // 名字为空才补默认值,不覆盖用户已经打好的名字。
+    setLabelInput(prev => (prev.trim() ? prev : DEFAULT_ADOPT_LABEL))
+    success('已填入推导坐标，可改名后点保存')
   }
 
   if (loading) return <LoadingState />
@@ -140,6 +129,8 @@ export function HomeLocationCard() {
   const badge = SOURCE_BADGE[source]
   const effective = state?.effective ?? null
   const explicit = state?.explicit ?? null
+  // 加载失败且没拿到过状态时,只给「失败 + 重试」,不渲染那张空壳卡片(E2)。
+  const showCard = !loadError || state !== null
 
   return (
     <div className="space-y-4">
@@ -147,71 +138,72 @@ export function HomeLocationCard() {
         <h3 className="flex items-center gap-2 text-sm font-medium text-white/80">
           <MapPin className="h-4 w-4" /> 常跑地点
         </h3>
-        <button type="button" onClick={fetchState}
-          className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/60 hover:bg-white/10">
-          <RefreshCw className="h-3 w-3" /> 刷新
-        </button>
+        <RefreshButton busy={refreshing || busy} onClick={() => void load()} />
       </div>
 
-      {loadError && <p className="text-sm text-rose-400">{loadError}</p>}
+      {loadError && <ErrorState message={loadError} onRetry={() => void load()} retrying={refreshing} />}
 
-      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            {effective ? (
-              <>
-                <p className="text-sm tabular-nums text-white/90">
-                  {effective.lat.toFixed(5)}, {effective.lng.toFixed(5)}
-                </p>
-                <p className="mt-1 text-xs text-white/40">
-                  {source === 'explicit' && explicit
-                    ? `${explicit.label ?? '未命名'} · 设置于 ${explicit.setAt ? formatDateTime(explicit.setAt) : '时间未知'}`
-                    : '来自最近室外活动起点的聚类'}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm text-white/40">
-                还没有可定位的常跑地点——保存显式坐标，或等有带 GPS 的室外活动后自动推导。
-              </p>
+      {showCard && (
+        <>
+          <div className={cn('rounded-lg border border-white/10 bg-white/[0.03] p-3 transition-opacity', refreshing && 'opacity-60')}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                {effective ? (
+                  <>
+                    <p className="text-sm tabular-nums text-white/90">
+                      {effective.lat.toFixed(5)}, {effective.lng.toFixed(5)}
+                    </p>
+                    <p className="mt-1 text-xs text-white/40">
+                      {source === 'explicit' && explicit
+                        ? `${explicit.label ?? '未命名'} · 设置于 ${explicit.setAt ? formatDateTime(explicit.setAt) : '时间未知'}`
+                        : '来自最近室外活动起点的聚类'}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-white/40">
+                    还没有可定位的常跑地点——保存显式坐标，或等有带 GPS 的室外活动后自动推导。
+                  </p>
+                )}
+              </div>
+              <span className={cn('shrink-0 rounded border px-1.5 py-0.5 text-xs', badge.cls)}>{badge.label}</span>
+            </div>
+            {source === 'derived' && effective && (
+              <button type="button" onClick={adoptDerived}
+                className="mt-2 inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/70 hover:bg-white/10">
+                <Crosshair className="h-3 w-3" /> 采用为显式值
+              </button>
             )}
           </div>
-          <span className={cn('shrink-0 rounded border px-1.5 py-0.5 text-xs', badge.cls)}>{badge.label}</span>
-        </div>
-        {source === 'derived' && effective && (
-          <button type="button" onClick={adoptDerived}
-            className="mt-2 inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/70 hover:bg-white/10">
-            <Crosshair className="h-3 w-3" /> 采用为显式值
-          </button>
-        )}
-      </div>
 
-      <div className="space-y-2">
-        <p className="text-xs uppercase tracking-wide text-white/40">显式设置（优先于自动推导）</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <input value={latInput} onChange={e => setLatInput(e.target.value)}
-            inputMode="decimal" placeholder="纬度，如 31.2304"
-            className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30" />
-          <input value={lngInput} onChange={e => setLngInput(e.target.value)}
-            inputMode="decimal" placeholder="经度，如 121.4737"
-            className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30" />
-          <input value={labelInput} onChange={e => setLabelInput(e.target.value)}
-            maxLength={30} placeholder="名称（可选），如 世纪公园"
-            className="col-span-2 w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30 sm:col-span-1" />
-        </div>
-        <p className="text-xs text-white/40">在地图 App 里长按目标位置即可复制经纬度，粘贴到上面。</p>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={save}
-            className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50">
-            <Check className="h-3 w-3" /> 保存
-          </button>
-          {explicit && (
-            <button type="button" disabled={busy} onClick={clearExplicit}
-              className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50">
-              <Trash2 className="h-3 w-3" /> 清除（回退自动推导）
-            </button>
-          )}
-        </div>
-      </div>
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-wide text-white/40">显式设置（优先于自动推导）</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <input value={latInput} onChange={e => setLatInput(e.target.value)}
+                inputMode="decimal" placeholder="纬度，如 31.2304"
+                className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30" />
+              <input value={lngInput} onChange={e => setLngInput(e.target.value)}
+                inputMode="decimal" placeholder="经度，如 121.4737"
+                className="w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30" />
+              <input value={labelInput} onChange={e => setLabelInput(e.target.value)}
+                maxLength={30} placeholder="名称（可选），如 世纪公园"
+                className="col-span-2 w-full rounded border border-white/15 bg-black/30 px-2 py-1 text-sm text-white placeholder:text-white/30 sm:col-span-1" />
+            </div>
+            <p className="text-xs text-white/40">在地图 App 里长按目标位置即可复制经纬度，粘贴到上面。</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={busy} onClick={() => void save()}
+                className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-500/30 disabled:opacity-50">
+                <Check className="h-3 w-3" /> 保存
+              </button>
+              {explicit && (
+                <button type="button" disabled={busy} onClick={() => void clearExplicit()}
+                  className="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs text-white/50 hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50">
+                  <Trash2 className="h-3 w-3" /> 清除（回退自动推导）
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

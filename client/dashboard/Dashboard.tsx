@@ -1,10 +1,13 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { LogOut } from 'lucide-react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { LogOut, RefreshCw, ServerCrash } from 'lucide-react'
+
+import { apiFetch, failureMessage, isUnauthorized, jsonBody } from '../lib/api'
 
 import { ToastProvider, useToast } from '../components/ui/toast'
 import { LoadingState } from '../components/shared'
 
 import { PrPanel } from './panels/PrPanel'
+import { SessionProvider } from './session'
 
 /**
  * mini-admin:单用户 PR 管理面(登录门 + PrPanel)。不含原仓 DashboardView 的分析/
@@ -19,25 +22,76 @@ export function Dashboard() {
   )
 }
 
-function DashboardInner() {
-  // null = 探测中;false = 未登录(显示登录门);true = 已登录(显示面板)
-  const [authed, setAuthed] = useState<boolean | null>(null)
+/**
+ * 探测结果三分:未登录(登录门)/ 已登录(面板)/ 服务不可用(重试卡)。
+ * Reason: 原来 catch 一律 setAuthed(false),后端 502 或没起时也显示登录框,
+ * 用户输对口令还是失败,诊断方向被带偏(S13)。
+ */
+type SessionState =
+  | { kind: 'checking' }
+  | { kind: 'anon' }
+  | { kind: 'authed' }
+  | { kind: 'offline'; message: string }
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        // 任一 withAuth 端点即可作探针:带会话 cookie → 200,否则 401。
-        const res = await fetch('/api/pr/reviews?limit=1', { cache: 'no-store' })
-        setAuthed(res.ok)
-      } catch {
-        setAuthed(false)
+function DashboardInner() {
+  const { error: toastError } = useToast()
+  const [session, setSession] = useState<SessionState>({ kind: 'checking' })
+
+  const probe = useCallback(async () => {
+    setSession({ kind: 'checking' })
+    try {
+      // 任一 withAuth 端点即可作探针:带会话 cookie → 200,否则 401。
+      await apiFetch('/api/pr/reviews?limit=1')
+      setSession({ kind: 'authed' })
+    } catch (error) {
+      if (isUnauthorized(error)) {
+        setSession({ kind: 'anon' })
+        return
       }
-    })()
+      setSession({ kind: 'offline', message: failureMessage('连接服务', error) })
+    }
   }, [])
 
-  if (authed === null) return <LoadingState />
-  if (!authed) return <LoginGate onSuccess={() => setAuthed(true)} />
-  return <PanelShell onLogout={() => setAuthed(false)} />
+  useEffect(() => {
+    void Promise.resolve().then(probe)
+  }, [probe])
+
+  // 面板里任何请求撞上 401 都会走这里:提示一次 + 回登录门,不留四行红字。
+  const handleExpired = useCallback(() => {
+    toastError('登录已过期，请重新登录')
+    setSession({ kind: 'anon' })
+  }, [toastError])
+
+  if (session.kind === 'checking') return <LoadingState />
+  if (session.kind === 'offline') return <ServiceUnavailable message={session.message} onRetry={() => void probe()} />
+  if (session.kind === 'anon') return <LoginGate onSuccess={() => setSession({ kind: 'authed' })} />
+  return (
+    <SessionProvider onExpired={handleExpired}>
+      <PanelShell onLogout={() => setSession({ kind: 'anon' })} />
+    </SessionProvider>
+  )
+}
+
+function ServiceUnavailable({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center p-6">
+      <div className="bg-card w-full max-w-sm space-y-4 rounded-lg border p-6 text-center shadow-sm">
+        <ServerCrash className="text-muted-foreground mx-auto h-7 w-7" />
+        <div>
+          <h1 className="font-semibold">服务暂不可用</h1>
+          <p className="text-muted-foreground mt-1 text-sm break-words">{message}</p>
+          <p className="text-muted-foreground mt-1 text-xs">这不是登录问题——确认后端已启动后再重试。</p>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="bg-primary text-primary-foreground inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium"
+        >
+          <RefreshCw className="h-4 w-4" /> 重试
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function LoginGate({ onSuccess }: { onSuccess: () => void }) {
@@ -50,20 +104,11 @@ function LoginGate({ onSuccess }: { onSuccess: () => void }) {
     if (!password || busy) return
     setBusy(true)
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-      if (res.ok) {
-        onSuccess()
-      } else if (res.status === 401) {
-        toastError('口令错误')
-      } else {
-        toastError(`登录失败 (HTTP ${res.status})`)
-      }
-    } catch (err) {
-      toastError(`登录失败: ${err instanceof Error ? err.message : '网络错误'}`)
+      await apiFetch('/api/auth/login', jsonBody('POST', { password }))
+      onSuccess()
+    } catch (error) {
+      // 登录接口的 401 是「口令错误」,不是会话过期。
+      toastError(isUnauthorized(error) ? '口令错误' : failureMessage('登录', error))
     }
     setBusy(false)
   }
@@ -102,15 +147,13 @@ function PanelShell({ onLogout }: { onLogout: () => void }) {
   async function logout() {
     setBusy(true)
     try {
-      const res = await fetch('/api/auth/logout', { method: 'POST' })
-      if (res.ok) {
-        success('已登出')
-        onLogout()
-      } else {
-        toastError(`登出失败 (HTTP ${res.status})`)
-      }
-    } catch (err) {
-      toastError(`登出失败: ${err instanceof Error ? err.message : '网络错误'}`)
+      await apiFetch('/api/auth/logout', { method: 'POST' })
+      success('已登出')
+      onLogout()
+    } catch (error) {
+      // 会话已经没了也算登出成功——回登录门,不给用户一个走不出去的报错。
+      if (isUnauthorized(error)) onLogout()
+      else toastError(failureMessage('登出', error))
     }
     setBusy(false)
   }

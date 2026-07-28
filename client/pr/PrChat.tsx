@@ -160,6 +160,9 @@ export default function PrChatPage() {
     abortRef.current?.abort()
     abortRef.current = null
     genRef.current += 1
+    // 离开会话后,之前那次「自己新建的会话」标记必然过期;不清掉的话万一以后切回同一个 id,
+    // 会被误判成「本地已是最新」而跳过历史拉取,直接把上一个会话的消息留在屏上。
+    selfSetThreadRef.current = null
     setSending(false)
   }
 
@@ -304,7 +307,7 @@ export default function PrChatPage() {
       {/* 毛玻璃顶栏:内容从底下滚过;高度含刘海安全区 */}
       <header
         className="pr-glass absolute inset-x-0 top-0 z-20 flex items-center gap-2.5 px-3.5"
-        style={{ height: 'calc(56px + env(safe-area-inset-top))', paddingTop: 'env(safe-area-inset-top)', borderBottom: '1px solid var(--pr-line)' }}
+        style={{ height: 'calc(56px + var(--pr-safe-top))', paddingTop: 'var(--pr-safe-top)', borderBottom: '1px solid var(--pr-line)' }}
       >
         <button type="button" onClick={() => { void fetchThreads(); setDrawerOpen(true) }} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="会话列表">
           <MenuIcon />
@@ -339,7 +342,7 @@ export default function PrChatPage() {
         ref={scrollRef}
         className="pr-scroll h-full overflow-y-auto px-4"
         style={{
-          paddingTop: 'calc(72px + env(safe-area-inset-top))',
+          paddingTop: 'calc(72px + var(--pr-safe-top))',
           paddingBottom: 'calc(var(--pr-composer-h, 168px) + 12px)',
           overscrollBehavior: 'contain',
         }}

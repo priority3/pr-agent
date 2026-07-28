@@ -27,11 +27,6 @@ export function isUnauthorized(error: unknown): boolean {
   return error instanceof ApiError && error.kind === 'unauthorized'
 }
 
-/** 服务不可达(断网/后端没起/网关 502)。 */
-export function isUnavailable(error: unknown): boolean {
-  return error instanceof ApiError && (error.kind === 'network' || error.status >= 500)
-}
-
 /** 后端 4xx/5xx 多带 { error: '…' };读得到就用它,读不到退回状态码。 */
 async function readErrorMessage(res: Response): Promise<string> {
   try {

@@ -62,7 +62,7 @@ export default function Composer(props: Props) {
   }
 
   return (
-    <div ref={containerRef} className="pr-glass absolute inset-x-0 bottom-0 z-20 px-3 pt-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 10px)' }}>
+    <div ref={containerRef} className="pr-glass absolute inset-x-0 bottom-0 z-20 px-3 pt-2.5" style={{ paddingBottom: 'calc(var(--pr-safe-bottom) + 10px)' }}>
       {props.authError && (
         <div className="pr-pop mb-2 rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--pr-sel)', color: 'var(--pr-text-2)' }}>
           登录已失效,请重新从推送链接进入。

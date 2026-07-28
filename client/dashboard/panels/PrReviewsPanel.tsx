@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MessageSquareText, Send } from 'lucide-react'
 
 import { failureMessage, isUnauthorized, jsonBody } from '../../lib/api'
@@ -40,16 +40,22 @@ export function PrReviewsPanel() {
   const [refreshing, setRefreshing] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  // Reason: 连点筛选会并发几条请求,先发的后到就会把列表覆盖成上一个类型的结果;
+  // 序号自增 + 回包比对,只认最后一次发起的那条。
+  const reqSeq = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = (reqSeq.current += 1)
     setRefreshing(true)
     try {
       // P3a 已把 reviews 端点从 /api/activities/reviews 重命名迁入 /api/pr/reviews。
       const query = kind ? `?limit=20&kind=${encodeURIComponent(kind)}` : '?limit=20'
       const data = await api.json<{ reviews?: ReviewSummary[] }>(`/api/pr/reviews${query}`)
+      if (seq !== reqSeq.current) return
       setReviews(data.reviews ?? [])
       setLoadError(null)
     } catch (error) {
+      if (seq !== reqSeq.current) return
       if (!isUnauthorized(error)) setLoadError(failureMessage('加载反思', error))
     }
     setLoading(false)

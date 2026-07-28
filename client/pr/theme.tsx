@@ -11,6 +11,9 @@ export function PrThemeStyle() {
   --pr-danger:#d92d20; --pr-danger-bg:rgba(217,45,32,.08);
   --pr-glass:rgba(255,255,255,.78);
   --pr-skel-a:#f1f1f3; --pr-skel-b:#e4e4e8;
+  /* 安全区走变量而不是内联 env():calc(72px + env(…)) 在不认识 env() 的浏览器里是整条声明作废
+     (padding 直接归 0,内容钻到顶栏底下),经变量兜底后最差也只是没有刘海留白。 */
+  --pr-safe-top:0px; --pr-safe-bottom:0px;
   --pr-spring:cubic-bezier(.34,1.56,.64,1); --pr-ease:cubic-bezier(.16,1,.3,1);
   color-scheme:light;
   -webkit-tap-highlight-color:transparent;
@@ -26,6 +29,9 @@ export function PrThemeStyle() {
     --pr-skel-a:#1c1c20; --pr-skel-b:#26262c;
     color-scheme:dark;
   }
+}
+@supports (padding:env(safe-area-inset-top)){
+  .pr{--pr-safe-top:env(safe-area-inset-top);--pr-safe-bottom:env(safe-area-inset-bottom)}
 }
 .pr ::selection{background:rgba(163,230,53,.4)}
 .pr .pr-glass{background:var(--pr-glass);backdrop-filter:blur(16px) saturate(1.5);-webkit-backdrop-filter:blur(16px) saturate(1.5)}

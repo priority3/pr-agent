@@ -27,12 +27,18 @@ export interface SendInput {
   retryOf?: Msg
 }
 
-/** 重试:把失败气泡改回发送中,并丢掉它后面的错误提示气泡 */
+/**
+ * 重试:把失败气泡改回发送中,并丢掉「紧跟它」的那些错误提示气泡。
+ * Reason: 只清到下一条用户消息为止——列表里可能有别的失败消息各自带着错误气泡,
+ * 一刀切「idx 之后所有 error」会把别人的错误提示也一起抹掉。
+ */
 function retryReset(ms: Msg[], id: string): Msg[] {
   const idx = ms.findIndex(m => m.id === id)
   if (idx < 0) return ms
+  let end = idx + 1
+  while (end < ms.length && ms[end].role === 'assistant') end += 1
   return ms
-    .filter((m, i) => i <= idx || !(m.role === 'assistant' && m.error))
+    .filter((m, i) => !(i > idx && i < end && m.error))
     .map(m => (m.id === id ? { ...m, status: 'sending' as const } : m))
 }
 

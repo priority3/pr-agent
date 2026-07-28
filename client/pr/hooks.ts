@@ -13,11 +13,16 @@ export function useStickyScroll(ref: RefObject<HTMLElement | null>, signal: unkn
   const [atBottom, setAtBottom] = useState(true)
   const [hasNew, setHasNew] = useState(false)
   const pinnedRef = useRef(true)
+  // Reason: 调用方(载入历史/发出消息)在 setState 之后、DOM 更新之前就调 scrollToBottom('auto'),
+  // 那一刻新内容还没渲染,真正落地的是下面这个跟随 effect。不把「要瞬移」传下去的话,
+  // 整屏历史会被 smooth 从顶部滚到底,和入场动画一起抖。
+  const instantNextRef = useRef(false)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = ref.current
     if (!el) return
     pinnedRef.current = true
+    if (behavior === 'auto') instantNextRef.current = true
     setAtBottom(true)
     setHasNew(false)
     el.scrollTo({ top: el.scrollHeight, behavior })
@@ -52,7 +57,9 @@ export function useStickyScroll(ref: RefObject<HTMLElement | null>, signal: unkn
       return
     }
     const raf = requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior: instant ? 'auto' : 'smooth' })
+      const behavior: ScrollBehavior = instant || instantNextRef.current ? 'auto' : 'smooth'
+      instantNextRef.current = false
+      el.scrollTo({ top: el.scrollHeight, behavior })
     })
     return () => cancelAnimationFrame(raf)
   }, [ref, signal, instant])
@@ -81,7 +88,17 @@ export function useVisualViewport(onChange?: () => void) {
     const vv = window.visualViewport
     if (!vv) return
     const root = document.documentElement
+    const clear = () => {
+      root.style.removeProperty('--pr-vh')
+      root.style.removeProperty('--pr-vv-top')
+    }
     const apply = () => {
+      // Reason: 捏合放大时 vv.height/offsetTop 描述的是「缩放取景窗」而不是键盘,照搬会让整页
+      // 跟着手指缩放平移。这时退回 100dvh(移除变量),只有正常比例下才贴合可视视口。
+      if (vv.scale > 1.05) {
+        clear()
+        return
+      }
       root.style.setProperty('--pr-vh', `${Math.round(vv.height)}px`)
       root.style.setProperty('--pr-vv-top', `${Math.round(vv.offsetTop)}px`)
       cb.current?.()
@@ -92,8 +109,7 @@ export function useVisualViewport(onChange?: () => void) {
     return () => {
       vv.removeEventListener('resize', apply)
       vv.removeEventListener('scroll', apply)
-      root.style.removeProperty('--pr-vh')
-      root.style.removeProperty('--pr-vv-top')
+      clear()
     }
   }, [])
 }

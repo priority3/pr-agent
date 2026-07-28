@@ -51,7 +51,7 @@ export default function ThreadDrawer({ open, threads, activeId, onClose, onSwitc
         style={{ background: 'var(--pr-bg)', transform: open ? 'translateX(0)' : 'translateX(-105%)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="p-3" style={{ borderBottom: '1px solid var(--pr-line)', paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+        <div className="p-3" style={{ borderBottom: '1px solid var(--pr-line)', paddingTop: 'calc(var(--pr-safe-top) + 12px)' }}>
           <button type="button" onClick={onNewChat} className="pr-tap flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)' }}>
             <PlusIcon size={18} />新对话
           </button>

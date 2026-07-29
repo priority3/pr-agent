@@ -12,13 +12,25 @@ const DEFAULT_EVAL_DB = 'file:./data/eval.db'
 
 const evalDbUrl = process.env.PR_EVAL_DATABASE_URL || DEFAULT_EVAL_DB
 
-// Reason: 生产库是 file:./data/pr.db。手滑把 PR_EVAL_DATABASE_URL 指过去(或指到远程 libsql)
-// 会污染真实数据且不可逆 —— 这里 fail fast,不给「跑一半才发现」的机会。
+// Reason: 播种会清表,手滑把 PR_EVAL_DATABASE_URL 指到真实库(或指到远程 libsql)会不可逆地
+// 抹掉数据 —— 这里 fail fast,不给「跑一半才发现」的机会。
 if (!evalDbUrl.startsWith('file:')) {
   throw new Error(`[eval] 隔离库必须是本地 file: 库,拿到:${evalDbUrl}`)
 }
-if (path.basename(evalDbUrl.replace(/^file:/, '')) === 'pr.db') {
-  throw new Error(`[eval] 隔离库不能是生产库 pr.db:${evalDbUrl}`)
+
+const asAbsFilePath = (url: string) => path.resolve(url.replace(/^file:/, ''))
+
+// 最强的一道:直接跟**本进程实际拿到的** DATABASE_URL 比对(此刻还没被覆盖)。
+// Reason: 早先只黑名单文件名 `pr.db`,但库名会变 —— 与宿主共库部署时它就叫 shared.db,
+// 那次改名让这道守卫瞬间失效(而那个库装着真实历史)。比对真实目标才不会随命名漂移。
+const productionDbUrl = process.env.DATABASE_URL
+if (productionDbUrl?.startsWith('file:') && asAbsFilePath(productionDbUrl) === asAbsFilePath(evalDbUrl)) {
+  throw new Error(`[eval] 隔离库与当前 DATABASE_URL 指向同一个文件,拒绝运行:${evalDbUrl}`)
+}
+
+// 兜底黑名单:已知的生产库文件名(即便本次没设 DATABASE_URL 也别踩)。
+if (['pr.db', 'shared.db', 'admin.db'].includes(path.basename(asAbsFilePath(evalDbUrl)))) {
+  throw new Error(`[eval] 隔离库不能用生产库文件名:${evalDbUrl}`)
 }
 
 process.env.DATABASE_URL = evalDbUrl

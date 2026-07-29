@@ -12,6 +12,7 @@ import { and, desc, eq, isNotNull, sql } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/client'
 import { activities } from '@/lib/db/schema'
+import { calculateDistance } from '@/lib/utils'
 import {
   fetchCurrentAirQuality,
   fetchForecast,
@@ -25,11 +26,31 @@ import { getExplicitHomeLocation } from '../home-location'
 
 import type { ContextBlock, ContextProvider } from './types'
 
+/** 次要常跑点(众数簇之外、占比够高的簇)。 */
+export interface HomeLocationAlternate {
+  lat: number
+  lng: number
+  /** 该簇点数 / 采样点数(0-1)。 */
+  share: number
+}
+
 export interface HomeLocation {
   lat: number
   lng: number
   /** 呈现给模型的地点措辞,如「按你配置的家附近」「按常跑路线定位」。 */
   label: string
+  /** 来源:explicit=面板显式设置;derived=活动轨迹推导;fixture=评测注入。 */
+  source?: 'explicit' | 'derived' | 'fixture'
+  /** 推导所用主簇里最新一条活动的时间(epoch ms)——判断这个坐标还算不算「当下」。 */
+  derivedFromLatestAt?: number
+  /** 推导数据是否已过期(主簇最新活动早于 STALE_AFTER_DAYS)。 */
+  stale?: boolean
+  /** 采样到的轨迹起点总数。 */
+  sampleSize?: number
+  /** 主簇点数。 */
+  clusterSize?: number
+  /** 除主簇外还常去的地点(占比 ≥ ALTERNATE_MIN_SHARE)。 */
+  alternates?: HomeLocationAlternate[]
 }
 
 interface EnvPayload {
@@ -49,6 +70,24 @@ interface EnvFixture {
 }
 
 const LOCATION_TTL_MS = 6 * 60 * 60 * 1000
+/** 推导采样:最近 N 条有轨迹的户外活动起点。 */
+const DERIVE_SAMPLE_LIMIT = 12
+/** 聚类网格边长(度),0.02° ≈ 2 km。 */
+const CLUSTER_GRID_DEG = 0.02
+/**
+ * 推导数据超过这么多天就算「过期」:坐标照用,但要让模型知道这是旧轨迹推的、可能已经变了。
+ * Reason: 刻意写成代码常量而不是设置项/env——地点新鲜度是判断逻辑而非用户偏好,
+ * 多一个开关就多一个要维护的设定。90 天 ≈ 一个季度,足够跨过搬家/换城市/换训练场这类变化。
+ */
+const STALE_AFTER_DAYS = 90
+/** 次要簇入选门槛(占采样点数的比例);低于此视为偶发外地跑,不呈现。 */
+const ALTERNATE_MIN_SHARE = 0.25
+/**
+ * 次要簇与主簇至少要隔这么远才算「另一个地点」(km)。
+ * Reason: 网格聚类会把同一片区域跨格切成两簇(起点在格子边界上抖动),
+ * 隔得太近的簇其实是同一个地方,列成「也常去」只会给模型添噪声。
+ */
+const ALTERNATE_MIN_SEPARATION_KM = 1.5
 const ENV_TTL_MS = 45 * 60 * 1000
 const ENV_FAIL_TTL_MS = 5 * 60 * 1000 // 失败也缓存,但短——瞬时抖动不该把「暂无」钉 45 分钟
 
@@ -71,51 +110,123 @@ function validCoord(lat: number, lng: number) {
   return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
 }
 
-/** 从最近室外活动的路线起点推导常跑地点(众数网格的均值)。 */
+/**
+ * fixture 地点归一:缺 source 就按 'fixture' 记。
+ * Reason: 新增的新鲜度/多点字段默认缺省 → 评测渲染与改动前逐字一致(可复现性优先);
+ * 要考「过期地点」「两个常跑点」这类行为时,fixture 里显式带上 source/stale/alternates 即可。
+ */
+function fixtureLocation(fixture: EnvFixture): HomeLocation {
+  const location = fixture.location ?? { lat: 0, lng: 0, label: '按评测 fixture' }
+  return { ...location, source: location.source ?? 'fixture' }
+}
+
+/** 推导输入:一条活动的起点 + 该活动开始时间(新鲜度判断用)。 */
+export interface DerivePoint {
+  lat: number
+  lng: number
+  /** 活动开始时间(epoch ms)。 */
+  at: number
+}
+
+/** 「12 天」「9 个月」「1.5 年」这类口语时长(给模型措辞用,别把裸时间戳递出去)。 */
+function agoText(ms: number): string {
+  const days = Math.max(0, Math.round(ms / 86_400_000))
+  if (days < 45) return `${days} 天`
+  if (days < 365) return `${Math.round(days / 30)} 个月`
+  return `${(days / 365).toFixed(1)} 年`
+}
+
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  return calculateDistance({ lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }) / 1000
+}
+
+/**
+ * 起点聚类 → 常跑地点。纯函数(无 DB/无时钟),推导规则集中在这里也便于单测。
+ * - 0.02°(≈2 km)网格分簇,众数簇均值 = 主常跑点(排除偶尔的外地跑)。
+ * - 占比 ≥ ALTERNATE_MIN_SHARE 且与主簇隔开 ALTERNATE_MIN_SEPARATION_KM 的簇 = 「也常去」。
+ * - 新鲜度按**主簇**里最新一条活动算:主簇很久没出现,说明这坐标未必还是他现在常跑的地方
+ *   (整批点里的最新一条可能来自别的簇,不能代表这个坐标的新鲜度)。
+ */
+export function deriveLocationFromPoints(points: DerivePoint[], now = Date.now()): HomeLocation | null {
+  if (points.length === 0) return null
+
+  const buckets = new Map<string, DerivePoint[]>()
+  for (const point of points) {
+    const key = `${Math.round(point.lat / CLUSTER_GRID_DEG)}:${Math.round(point.lng / CLUSTER_GRID_DEG)}`
+    const bucket = buckets.get(key) ?? []
+    bucket.push(point)
+    buckets.set(key, bucket)
+  }
+  // 点数相同时按插入序取胜(sort 稳定 + Map 保序);调用方按时间倒序喂点 → 平票偏向最近去的那处。
+  const clusters = Array.from(buckets.values()).sort((a, b) => b.length - a.length)
+  const center = (cluster: DerivePoint[]) => ({
+    lat: cluster.reduce((sum, p) => sum + p.lat, 0) / cluster.length,
+    lng: cluster.reduce((sum, p) => sum + p.lng, 0) / cluster.length,
+  })
+
+  const [dominant, ...rest] = clusters
+  const main = center(dominant)
+  const latestAt = Math.max(...dominant.map(point => point.at))
+  const stale = now - latestAt > STALE_AFTER_DAYS * 86_400_000
+  const alternates = rest
+    .filter(cluster => cluster.length / points.length >= ALTERNATE_MIN_SHARE)
+    .map(cluster => ({ ...center(cluster), share: cluster.length / points.length }))
+    .filter(alternate => distanceKm(main, alternate) >= ALTERNATE_MIN_SEPARATION_KM)
+
+  return {
+    ...main,
+    // 过期时把「多久以前」写进 label:label 会进上下文标题与 query_weather 返回,
+    // 模型光看这一处就知道该给结论留余地。
+    label: stale ? `按 ${agoText(now - latestAt)}前的常跑路线推定` : '按常跑路线定位',
+    source: 'derived',
+    derivedFromLatestAt: latestAt,
+    ...(stale ? { stale: true } : {}),
+    sampleSize: points.length,
+    clusterSize: dominant.length,
+    ...(alternates.length ? { alternates } : {}),
+  }
+}
+
+/** 从最近室外活动的路线起点推导常跑地点(众数网格的均值 + 新鲜度 + 次要常跑点)。 */
 async function deriveLocationFromActivities(): Promise<HomeLocation | null> {
   const db = await getActivitiesDb()
   // Reason: routeCoordinates 是整条降采样路线的 JSON,整列取回太重;
   // 起点必在开头,substr 前 64 字符足够正则出第一对 [lat,lng]。
-  const headColumn = { head: sql<string>`substr(${activities.routeCoordinates}, 1, 64)` }
+  const columns = {
+    head: sql<string>`substr(${activities.routeCoordinates}, 1, 64)`,
+    startTime: activities.startTime,
+  }
   const baseWhere = [eq(activities.isIndoor, false), isNotNull(activities.routeCoordinates)]
   let rows = await db
-    .select(headColumn)
+    .select(columns)
     .from(activities)
     .where(and(eq(activities.type, 'running'), ...baseWhere))
     .orderBy(desc(activities.startTime))
-    .limit(12)
+    .limit(DERIVE_SAMPLE_LIMIT)
   if (rows.length === 0) {
     // 没有室外跑步就放宽到任意室外活动(骑行/步行起点同样能定位生活范围)
     rows = await db
-      .select(headColumn)
+      .select(columns)
       .from(activities)
       .where(and(...baseWhere))
       .orderBy(desc(activities.startTime))
-      .limit(12)
+      .limit(DERIVE_SAMPLE_LIMIT)
   }
 
-  const points: Array<{ lat: number; lng: number }> = []
+  const points: DerivePoint[] = []
   for (const row of rows) {
     const match = /\[\s*\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/.exec(row.head ?? '')
     if (!match) continue
     const lat = Number(match[1])
     const lng = Number(match[2])
-    if (validCoord(lat, lng)) points.push({ lat, lng })
+    // Reason: 时间拿不到的点直接丢掉——新鲜度是这次改动的承重字段,
+    // 让一个没有时间的点混进簇会把 latestAt 算歪(宁可少一个采样点)。
+    // 包一层 new Date 而不是直接 .getTime():drizzle timestamp 模式给的是 Date,
+    // 但驱动层回退成数字/字符串时也能吃(拿不到就 NaN → 这条被过滤)。
+    const at = new Date(row.startTime).getTime()
+    if (validCoord(lat, lng) && Number.isFinite(at)) points.push({ lat, lng, at })
   }
-  if (points.length === 0) return null
-
-  // 0.02°(≈2km)网格聚类取众数簇,再取簇内均值 —— 排除偶尔的外地跑
-  const buckets = new Map<string, Array<{ lat: number; lng: number }>>()
-  for (const point of points) {
-    const key = `${Math.round(point.lat / 0.02)}:${Math.round(point.lng / 0.02)}`
-    const bucket = buckets.get(key) ?? []
-    bucket.push(point)
-    buckets.set(key, bucket)
-  }
-  const dominant = Array.from(buckets.values()).sort((a, b) => b.length - a.length)[0]
-  const lat = dominant.reduce((sum, p) => sum + p.lat, 0) / dominant.length
-  const lng = dominant.reduce((sum, p) => sum + p.lng, 0) / dominant.length
-  return { lat, lng, label: '按常跑路线定位' }
+  return deriveLocationFromPoints(points)
 }
 
 /**
@@ -126,7 +237,7 @@ export async function getHomeLocation(): Promise<HomeLocation | null> {
   // Reason: fixture 模式(评测)地点也以 fixture 为准——startPlace 等派生值可复现,
   // 不受评测机真实画像库里显式地点的影响;生产无 fixture,此分支不生效。
   const fixture = readFixture()
-  if (fixture?.location) return fixture.location
+  if (fixture?.location) return fixtureLocation(fixture)
   if (locationCache && Date.now() - locationCache.at < LOCATION_TTL_MS) return locationCache.value
 
   let value: HomeLocation | null = null
@@ -137,6 +248,7 @@ export async function getHomeLocation(): Promise<HomeLocation | null> {
       lat: explicit.lat,
       lng: explicit.lng,
       label: explicit.label ? `按${explicit.label}` : '按你设置的常跑地点',
+      source: 'explicit',
     }
   } else {
     value = await deriveLocationFromActivities().catch(() => null)
@@ -159,7 +271,7 @@ async function getEnvPayload(): Promise<EnvPayload | null> {
   const fixture = readFixture()
   if (fixture) {
     return {
-      location: fixture.location ?? { lat: 0, lng: 0, label: '按评测 fixture' },
+      location: fixtureLocation(fixture),
       forecast: fixture.forecast,
       airQuality: fixture.airQuality ?? null,
     }
@@ -254,6 +366,47 @@ function renderEnvironmentLines(payload: EnvPayload, nowLocal: string): string[]
   return lines
 }
 
+/**
+ * 地点自身的可信度说明(渲染在环境数据之后)。三种情形各一行,都不成立就不占字:
+ * ① 推导数据过期 → 别把旧轨迹当成他当下的位置,天气结论要留余地;
+ * ② 有第二个常跑点 → 让模型知道不止一处(天气仍按主簇,避免歧义);
+ * ③ 只有坐标没地名 → 不许猜地名,可在聊到时顺口问一次(替代"再加一个设置项")。
+ */
+function locationCaveatLines(location: HomeLocation, now = Date.now()): string[] {
+  const lines: string[] = []
+  if (location.stale && location.derivedFromLatestAt) {
+    lines.push(
+      `- 位置存疑：这个坐标是从他有轨迹的跑步起点推出来的，其中最新那次已经是 ${agoText(now - location.derivedFromLatestAt)}前了——这段时间他可能换了常跑的地方、甚至换了城市。上面的天气/空气只对这个坐标成立：说的时候带上这层不确定（「按你常跑那边看…」），或者顺口确认一句他现在还在那边跑吗，别当成他此刻所在地的确定实况。`,
+    )
+  }
+  if (location.alternates?.length) {
+    const mainShare = location.sampleSize && location.clusterSize
+      ? `约 ${Math.round((location.clusterSize / location.sampleSize) * 100)}%`
+      : '大多数'
+    const alts = location.alternates
+      .map(
+        alt =>
+          `${alt.lat.toFixed(3)},${alt.lng.toFixed(3)}（约 ${Math.round(alt.share * 100)}%，离主要那处约 ${distanceKm(location, alt).toFixed(1)} km）`,
+      )
+      .join('；')
+    lines.push(
+      `- 常跑地点不止一处：主要那处（${mainShare} 的轨迹起点，也就是上面天气用的坐标）之外，他还常去 ${alts}。天气按主要那处算；别把「他只在一个地方跑」当成事实。坐标是给你自己判断用的，别念给他听。`,
+    )
+  }
+  if (location.source === 'derived') {
+    lines.push(
+      '- 只有坐标、没有地名：系统没有地图检索能力，不知道这地方叫什么，所以公园名/路名/小区名一律别猜别编。长期记忆里若已有他说过的常跑地点名字，就直接用那个；没有的话，等聊到跑步地点或路线时可以顺口问一句他平时都在哪儿跑，问过一次就够了——别每轮都问，也别为了问打断正题。',
+    )
+  }
+  return lines
+}
+
+/** 给 query_weather 返回用的一句话位置说明(工具 JSON 用半角标点,与其他 note 一致)。 */
+function staleLocationCaveat(location: HomeLocation, now = Date.now()): string | null {
+  if (!location.stale || !location.derivedFromLatestAt) return null
+  return `地点说明:这不是他设置的地点,是按 ${agoText(now - location.derivedFromLatestAt)}前的跑步轨迹推的,未必还是他现在常跑的地方——这份天气要带着这层不确定说,别当成他当下位置的准确实况`
+}
+
 function unavailableBlock(reason: string): ContextBlock {
   return {
     key: 'environment',
@@ -278,8 +431,13 @@ export const environmentProvider: ContextProvider = {
     return {
       key: 'environment',
       title: `# 现在的环境（实况与预报，${payload.location.label}）`,
-      lines: renderEnvironmentLines(payload, nowLocal),
-      data: { hasEnvironment: true, locationLabel: payload.location.label },
+      lines: [...renderEnvironmentLines(payload, nowLocal), ...locationCaveatLines(payload.location)],
+      data: {
+        hasEnvironment: true,
+        locationLabel: payload.location.label,
+        locationSource: payload.location.source ?? null,
+        locationStale: payload.location.stale ?? false,
+      },
     }
   },
   tools: [
@@ -320,6 +478,8 @@ export const environmentProvider: ContextProvider = {
     // 地点解析:place 指定异地(fixture 查预置表 / 真实走 geocoding),否则常跑地点。
     let forecast: ForecastData | null = null
     let locationLabel = ''
+    // 常跑地点是旧轨迹推的时,把这层不确定一起返回给模型(place 指定异地时无此问题)。
+    let locationCaveat: string | null = null
     if (place) {
       if (fixture) {
         const preset = fixture.placeForecasts?.[place]
@@ -342,11 +502,13 @@ export const environmentProvider: ContextProvider = {
       forecast = await fetchForecast(location.lat, location.lng, 7, pastDays)
       if (!forecast) return JSON.stringify({ error: '天气服务没响应,稍后再试,别编数值' })
       locationLabel = location.label
+      locationCaveat = staleLocationCaveat(location)
     } else {
       const payload = await getEnvPayload()
       if (!payload) return JSON.stringify({ error: '天气服务不可用或还没有常跑地点定位,别编数值' })
       forecast = payload.forecast
       locationLabel = payload.location.label
+      locationCaveat = staleLocationCaveat(payload.location)
     }
 
     const day = forecast.daily.find(item => item.date === date)
@@ -381,7 +543,11 @@ export const environmentProvider: ContextProvider = {
       date,
       location: locationLabel,
       // 过去日期给措辞锚点:这是那天的实况回看,不是预报,模型别说成「预计」。
-      note: daysAgo > 0 ? '历史实测(那天已过去,以下是当天实况汇总)' : undefined,
+      // 地点过期时同一字段带上位置不确定(两条都可能出现,拼一起给)。
+      note:
+        [daysAgo > 0 ? '历史实测(那天已过去,以下是当天实况汇总)' : null, locationCaveat]
+          .filter(Boolean)
+          .join(';') || undefined,
       summary: {
         description: day.description,
         tempMin: day.tempMin,

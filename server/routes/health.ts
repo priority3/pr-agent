@@ -70,7 +70,7 @@ health.get('/daily', withAuth, async c => {
   return c.json({ metrics })
 })
 
-// POST 接受 admin 会话(dashboard)或 HEALTH_IMPORT_TOKEN(外部上报端,如 iOS 快捷指令 / HealthKit)。
+// POST 接受 admin 会话或 HEALTH_IMPORT_TOKEN(外部上报端,如 iOS 快捷指令 / HealthKit)。
 health.post('/daily', withHealthImportAuth, async c => {
   let body: Record<string, unknown>
   try {

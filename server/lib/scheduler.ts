@@ -8,6 +8,7 @@
  * - sync(Keep/Strava)P4b 已接:调 ingest performSync(source 取 SYNC_SOURCE,默认 keep),
  *   仅当对应凭据 env 已配才实际跑;同步出新活动后联动 generatePrReviewsForActivities 生成复盘/推送。
  * - 显式 startScheduler()(server 启动时调),替代源仓"首个 GET /api/health 懒启动"。
+ * - 总开关 PR_SCHEDULER(默认开;off/false/0 = 一个 job 都不注册),供共库部署用,见下。
  */
 import cron from 'node-cron'
 
@@ -186,6 +187,18 @@ function isSyncConfigured(): boolean {
   return Boolean(process.env.SYNC_SOURCE || process.env.KEEP_MOBILE || process.env.STRAVA_REFRESH_TOKEN)
 }
 
+/**
+ * 调度总开关。默认开启(独立自部署时后台任务必须自己跑)。
+ *
+ * Reason: 与宿主(如 runPaceFlow-admin)共用同一个库部署时,宿主那边已经在跑同一批任务
+ * (晨间反思/周总结/日记/记忆维护/通知派发/清理),两边都跑 = 同一份数据被复盘两遍、
+ * 通知推两次。此时把 PR_SCHEDULER 设成 off,本进程只当 HTTP + agent 服务。
+ */
+function isSchedulerDisabled(): boolean {
+  const flag = (process.env.PR_SCHEDULER ?? '').trim().toLowerCase()
+  return ['off', 'false', '0'].includes(flag)
+}
+
 function setupJobs() {
   for (const task of scheduledTasks) task.stop()
   scheduledTasks = []
@@ -209,11 +222,21 @@ export async function startScheduler() {
   schedulerStarted = true
 
   // 启动即收回上次进程崩溃遗留的孤儿 run(status='running' 太久),避免它们永久卡住。
+  // Reason: 这是启动时的一次性修复,不是定时任务 —— 幂等、便宜,且对本进程自己崩溃遗留的
+  // run 也该负责,所以**不受 PR_SCHEDULER 开关影响**(否则关了调度就没人清,即便是
+  // 用外部 cron 驱动的独立部署)。共库时与宿主重复执行也无害(只是把超时的锁清掉)。
   try {
     const reclaimed = await reclaimStaleRuns()
     if (reclaimed > 0) console.log(`[Scheduler] Reclaimed ${reclaimed} stale running agent run(s)`)
   } catch (err) {
     console.warn('[Scheduler] reclaimStaleRuns failed:', (err as Error).message)
+  }
+
+  if (isSchedulerDisabled()) {
+    console.log(
+      `[Scheduler] Disabled by PR_SCHEDULER=${process.env.PR_SCHEDULER} - 不注册任何定时任务(共库部署时交由宿主调度)`,
+    )
+    return
   }
 
   setupJobs()
@@ -222,6 +245,11 @@ export async function startScheduler() {
 
 /** 重载调度(env 改动后可调;单用户场景一般无需)。 */
 export function reloadScheduler() {
+  if (isSchedulerDisabled()) {
+    console.log('[Scheduler] PR_SCHEDULER=off - 跳过重载')
+    return
+  }
+
   setupJobs()
   console.log('[Scheduler] Reloaded')
 }

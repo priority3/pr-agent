@@ -1,10 +1,4 @@
-import { clsx, type ClassValue } from 'clsx'
 import { customAlphabet } from 'nanoid'
-import { twMerge } from 'tailwind-merge'
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
 
 // 使用 nanoid 生成 21 字符 ID(供搬迁来的同步 processor/service 用)
 const nanoid = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 21)
@@ -12,17 +6,6 @@ const nanoid = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 21)
 export function generateId(prefix?: string): string {
   const id = nanoid()
   return prefix ? `${prefix}_${id}` : id
-}
-
-export function formatDateTime(value?: string | number | Date | null) {
-  if (!value) return '从未'
-
-  return new Date(value).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 /**

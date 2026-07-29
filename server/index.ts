@@ -22,12 +22,11 @@ app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 app.route('/api/activities', activitiesRoutes)
 
-// 静态资源(Vite 多入口构建产物)。两个前端入口:/pr → H5 对话,/dashboard → mini-admin。
-// API 路由已在前,未命中才落到这里。/ 默认进 dashboard;共享 assets(/assets/*、/pr-logo.png 等)
-// 由通配 serveStatic 从 client/dist 提供。
-app.get('/', serveStatic({ path: './client/dist/dashboard/index.html' }))
+// 静态资源(Vite 单入口构建产物)。唯一前端入口 = H5 对话页,/ 与 /pr 都服务它。
+// 管理端点(withAuth 那批)保留但无内置界面,由宿主(如 runPaceFlow-admin 的「PR 伙伴」面板)提供。
+// API 路由已在前,未命中才落到这里;assets(/assets/*、/pr-logo.png 等)由通配 serveStatic 提供。
+app.get('/', serveStatic({ path: './client/dist/pr/index.html' }))
 app.get('/pr', serveStatic({ path: './client/dist/pr/index.html' }))
-app.get('/dashboard', serveStatic({ path: './client/dist/dashboard/index.html' }))
 app.use('/*', serveStatic({ root: './client/dist' }))
 
 // 启动序列:先建表(消除首个带会话请求的 "no such table"),再显式启动调度器,最后 serve。

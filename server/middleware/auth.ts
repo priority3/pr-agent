@@ -26,7 +26,7 @@ export function isAuthenticated(c: Context): boolean {
   return verifySessionToken(getCookie(c, SESSION_COOKIE_NAME))
 }
 
-/** admin 会话必需(dashboard 管理面 / 内部端点)。 */
+/** admin 会话必需(管理端点;本仓无内置界面,由宿主界面或 curl 调用)。 */
 export const withAuth: MiddlewareHandler = async (c, next) => {
   if (!isAuthenticated(c)) return c.json({ error: 'Unauthorized' }, 401)
   await next()
@@ -34,7 +34,8 @@ export const withAuth: MiddlewareHandler = async (c, next) => {
 
 /**
  * admin 会话 或 Bearer <token> 二选一。上报设备(iOS 快捷指令)带不了会话 cookie,
- * 用共享 token 鉴权;dashboard 走会话 cookie。token 读取失败不升级为 500(降级到会话鉴权)。
+ * 用共享 token 鉴权;管理端(宿主界面 / curl)走会话 cookie。token 读取失败不升级为 500
+ * (降级到会话鉴权)。
  */
 function tokenOrSessionAuth(settingKey: string, logTag: string): MiddlewareHandler {
   return async (c, next) => {

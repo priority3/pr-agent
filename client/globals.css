@@ -1,7 +1,10 @@
 @import 'tailwindcss';
 
-@custom-variant dark (&:is(.dark *));
-
+/*
+ * 全局基线令牌 + 基础层。唯一前端入口是 H5 /pr,它的配色走自带的 --pr-* 主题(pr/theme.tsx),
+ * 这里只提供 body/border 基础样式所需的浅色令牌。
+ * 深色令牌(.dark)与 .scrollbar-subtle 原为已删除的内置管理面板服务,现已随之移除。
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -52,34 +55,6 @@
     --ring: oklch(0.708 0 0);
   }
 
-  /*
-   * 深色令牌(shadcn/ui 官方深色调色板)。原仓 globals.css 未带 .dark 覆盖,
-   * 但 PR 管理面板硬编 text-white/* 等类,显然为深色表面设计;mini-admin 的
-   * dashboard/index.html 挂 class="dark",让 bg-card/bg-muted/text-foreground
-   * 落到深色值,面板文字才可读。H5 /pr 页有自带 --pr-* 主题,与此无关。
-   */
-  .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-  }
-
   * {
     @apply border-border;
   }
@@ -97,23 +72,4 @@
   select {
     font: inherit;
   }
-}
-
-.scrollbar-subtle {
-  scrollbar-width: thin;
-  scrollbar-color: rgb(142 142 147 / 35%) transparent;
-}
-
-.scrollbar-subtle::-webkit-scrollbar {
-  height: 8px;
-  width: 8px;
-}
-
-.scrollbar-subtle::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-subtle::-webkit-scrollbar-thumb {
-  border-radius: 9999px;
-  background-color: rgb(142 142 147 / 35%);
 }

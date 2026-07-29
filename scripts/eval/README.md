@@ -100,7 +100,7 @@ runner 按档分组、档间重播种。
 - `summary.md` —— 运行信息、总体 / 分级 / 分类别通过率、失败原因直方图、延迟、工具准确率、未通过一览。
 - `results.json` —— 每条用例全量(对话 / 工具 / 快照 / 检查 / 裁判)。
 - `failures/<id>.md` —— 每条未通过用例的完整 agent 调用日志(step 快照瀑布 + 思考流 + 回复 + 红旗 + 裁判理由)。
-- `data/eval.db` 保留,可事后用 dashboard 或 SQL 复看。
+- `data/eval.db` 保留,可事后用 SQL 复看。
 
 ## 可选 tracing
 

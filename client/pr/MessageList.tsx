@@ -11,6 +11,11 @@ interface Props {
   /** 整屏载入的历史条数:小于它的消息错峰入场,之后追加的立即入场 */
   staggerCount: number
   threadKey: string
+  /**
+   * 历史里最后一条是自己发的、还没有回复:waiting = 正在定时补拉,timeout = 补拉次数用完。
+   * 刻意不复用三点 loading / streaming 外观——那会假装「正在打字」,而这里只是在等服务端。
+   */
+  replyWait: 'waiting' | 'timeout' | null
   imgSrc: (url: string) => string
   onToggleThinking: (id: string) => void
   onRetry: (id: string) => void
@@ -86,6 +91,10 @@ export default function MessageList(props: Props) {
           // 思考展示:流式且正文未开始 → 实时暗色滚动;否则收起成「已思考 Ns」胶囊(点击展开)
           const thinkingLive = Boolean(m.streaming && m.thinking && !m.content)
           const copyable = !m.streaming && !m.error && m.content.length > 0 && m.content !== '[图片]'
+          // Reason: 气泡里所有内容都是条件渲染,一条「流已结束但正文/思考/图片全空」的消息
+          // 会渲染成零高度的空 div —— 生产实测过这种静默失败(服务端答了并落库、界面什么都没有,
+          // 也没有 loading 和重试)。这里把它显性化,并给一键重拉历史。
+          const blank = !m.streaming && !m.content && !m.thinking && !m.imageUrl
           return (
             <div key={m.id} className="pr-msg flex items-end gap-2" style={{ animationDelay: delay }}>
               {firstOfGroup ? <PrAvatar /> : <div className="w-7 shrink-0" />}
@@ -128,6 +137,19 @@ export default function MessageList(props: Props) {
                 {m.content && m.content !== '[图片]' && (
                   <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed">{m.content}</div>
                 )}
+                {blank && (
+                  <div className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-[13px]" style={{ color: 'var(--pr-muted)' }}>
+                    <span>这条没收到内容</span>
+                    <button
+                      type="button"
+                      onClick={props.onReloadHistory}
+                      className="pr-tap rounded-full px-2 py-0.5 text-[12px]"
+                      style={{ border: '1px solid var(--pr-line-strong)', color: 'var(--pr-text-2)' }}
+                    >
+                      重新载入
+                    </button>
+                  </div>
+                )}
               </div>
               {copyable && (
                 <button
@@ -143,6 +165,9 @@ export default function MessageList(props: Props) {
           )
         })}
 
+        {/* 等回复(不是本次发送,而是历史里那条还没被回答的消息):轻提示 + 兜底重载 */}
+        {!sending && props.replyWait && <ReplyWait state={props.replyWait} onReload={props.onReloadHistory} />}
+
         {/* 三点 loading 只显示到首个流式事件到达(之后由思考/正文接管) */}
         {sending && !(messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.streaming) && (
           <div className="pr-msg flex items-end gap-2">
@@ -154,6 +179,34 @@ export default function MessageList(props: Props) {
         )}
       </div>
     </>
+  )
+}
+
+/**
+ * 「你的消息还没有回复」提示。一次带工具调用的回复实测要 30 秒以上,期间离开会话
+ * 再回来时历史里就只有自己那条,所以这里明说在等、并在补拉用尽后给手动重载。
+ */
+function ReplyWait({ state, onReload }: { state: 'waiting' | 'timeout'; onReload: () => void }) {
+  if (state === 'waiting') {
+    return (
+      <div className="flex items-center gap-2 pl-9 text-[12px]" style={{ color: 'var(--pr-muted)' }} aria-live="polite">
+        <span className="pr-dot-solid pr-pulse" style={{ background: 'var(--pr-muted)' }} />
+        PR 可能还在想(有时要半分钟以上),回复到了会自动出现
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 pl-9 text-[12px]" style={{ color: 'var(--pr-muted)' }} aria-live="polite">
+      <span>还没等到回复</span>
+      <button
+        type="button"
+        onClick={onReload}
+        className="pr-tap rounded-full px-2 py-0.5"
+        style={{ border: '1px solid var(--pr-line-strong)', color: 'var(--pr-text-2)' }}
+      >
+        重新载入
+      </button>
+    </div>
   )
 }
 

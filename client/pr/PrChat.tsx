@@ -7,8 +7,9 @@ import { ArrowDownIcon, MenuIcon, PlusIcon } from './icons'
 import MessageList from './MessageList'
 import { PrThemeStyle } from './theme'
 import ThreadDrawer from './ThreadDrawer'
-import type { HistoryState, Msg, ServerMsg, Thread } from './types'
+import type { Thread } from './types'
 import { useChatSend } from './useChatSend'
+import { useThreadHistory } from './useThreadHistory'
 
 /**
  * PR 对话 H5(手机优先,完整多会话 chat)。RunPaceFlow 品牌:黑白极简 + 荧光绿强调色 + 真实 logo。
@@ -26,8 +27,6 @@ export default function PrChatPage() {
   const [authError, setAuthError] = useState(false)
   const [threads, setThreads] = useState<Thread[]>([])
   const [threadId, setThreadId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<Msg[]>([])
-  const [historyState, setHistoryState] = useState<HistoryState>('loading')
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -39,19 +38,37 @@ export default function PrChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // 历史消息入场错峰只在整屏载入时生效;之后追加的新消息立即入场(否则每次发送都要等 delay)
-  const staggerCountRef = useRef(0)
+  // sending 的镜像:补拉 timer 触发时要读最新值(闭包里的 state 是旧的)
+  const sendingRef = useRef(false)
   // 会话代号:切会话/新对话/删会话都 +1;所有异步回包写状态前校验,防止旧会话的流写进新会话
   const genRef = useRef(0)
   // 自己发消息拿到的新 threadId:跳过一次历史重拉(本地已是最新,重拉只会闪骨架并丢掉思考块)
   const selfSetThreadRef = useRef<string | null>(null)
+  // 载入完成时要回到底部,但 scrollToBottom 要等 messages 先就位 → 经 ref 回调转一手
+  const scrollToBottomRef = useRef<(behavior?: ScrollBehavior) => void>(() => {})
 
   const authHeader = (): HeadersInit => ({ Authorization: `Bearer ${token ?? ''}` })
   const imgSrc = (url: string) => `${url}${url.includes('?') ? '&' : '?'}t=${encodeURIComponent(token ?? '')}`
 
+  // 历史列表 + 载入三态 + 「等回复」补拉(见 useThreadHistory)
+  const {
+    messages, setMessages, historyState, setHistoryState, replyWait, staggerCount,
+    loadMessages, stopReplyWait, clearMessages,
+  } = useThreadHistory({
+    authHeader,
+    genRef,
+    sendingRef,
+    setAuthError,
+    onLoaded: () => scrollToBottomRef.current('auto'),
+  })
+
   const { atBottom, hasNew, scrollToBottom, keepPinned } = useStickyScroll(scrollRef, messages, sending)
   useVisualViewport(keepPinned)
   useElementHeightVar(composerRef, '--pr-composer-h')
+
+  useEffect(() => {
+    scrollToBottomRef.current = scrollToBottom
+  }, [scrollToBottom])
 
   // token 初始化(mount 后读浏览器 API)
   useEffect(() => {
@@ -110,36 +127,6 @@ export default function PrChatPage() {
     noticeTimer.current = setTimeout(() => setNotice(null), 4000)
   }
 
-  /** 载入历史:loading→骨架、error→可重试、ready→才可能显示欢迎语(空态不再冒充「会话被清空」) */
-  async function loadMessages(id: string) {
-    const gen = genRef.current
-    setHistoryState('loading')
-    try {
-      const r = await fetch(`/api/pr/chat?threadId=${encodeURIComponent(id)}`, { headers: authHeader(), cache: 'no-store' })
-      if (genRef.current !== gen) return
-      if (r.status === 401) { setAuthError(true); setHistoryState('error'); return }
-      if (!r.ok) { setHistoryState('error'); return }
-      const j = await r.json()
-      if (genRef.current !== gen) return
-      const list: Msg[] = (j.messages ?? [])
-        .slice()
-        .reverse()
-        .map((m: ServerMsg) => ({
-          id: typeof m.id === 'string' && m.id ? m.id : newId(),
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content,
-          imageUrl: m.imageUrl ?? null,
-          status: 'sent' as const,
-        }))
-      staggerCountRef.current = list.length
-      setMessages(list)
-      setHistoryState('ready')
-      scrollToBottom('auto')
-    } catch {
-      if (genRef.current === gen) setHistoryState('error')
-    }
-  }
-
   /** 失败返回 null(而不是 []):调用方据此保留旧列表,不会因一次抖动把用户踢回新对话 */
   async function fetchThreads(): Promise<Thread[] | null> {
     try {
@@ -155,7 +142,13 @@ export default function PrChatPage() {
     }
   }
 
-  /** 离开当前会话前的统一收尾:中断在途请求 + 作废其回包 */
+  /** sending 同时写进 ref:补拉 timer 里要读最新值 */
+  function markSending(value: boolean) {
+    sendingRef.current = value
+    setSending(value)
+  }
+
+  /** 离开当前会话前的统一收尾:中断在途请求 + 作废其回包 + 停掉等回复的补拉 */
   function leaveCurrent() {
     abortRef.current?.abort()
     abortRef.current = null
@@ -163,7 +156,8 @@ export default function PrChatPage() {
     // 离开会话后,之前那次「自己新建的会话」标记必然过期;不清掉的话万一以后切回同一个 id,
     // 会被误判成「本地已是最新」而跳过历史拉取,直接把上一个会话的消息留在屏上。
     selfSetThreadRef.current = null
-    setSending(false)
+    stopReplyWait()
+    markSending(false)
   }
 
   function switchTo(id: string) {
@@ -179,8 +173,7 @@ export default function PrChatPage() {
     setDrawerOpen(false)
     leaveCurrent()
     setThreadId(null)
-    staggerCountRef.current = 0
-    setMessages([])
+    clearMessages()
     setPendingImageUrl(null)
     setHistoryState('ready')
     localStorage.removeItem('pr_chat_thread')
@@ -213,8 +206,7 @@ export default function PrChatPage() {
         localStorage.setItem('pr_chat_thread', next)
       } else {
         setThreadId(null)
-        staggerCountRef.current = 0
-        setMessages([])
+        clearMessages()
         setHistoryState('ready')
         localStorage.removeItem('pr_chat_thread')
       }
@@ -245,7 +237,7 @@ export default function PrChatPage() {
     genRef,
     abortRef,
     setMessages,
-    setSending,
+    setSending: markSending,
     setAuthError,
     onThreadCreated: id => {
       selfSetThreadRef.current = id
@@ -253,7 +245,19 @@ export default function PrChatPage() {
       localStorage.setItem('pr_chat_thread', id)
     },
     refreshThreads: () => { void fetchThreads() },
-    onStart: () => scrollToBottom('auto'), // 自己发的消息:无条件回到底部
+    // 自己发的消息:无条件回到底部;并停掉等回复的补拉(本次请求自己会带回正文,
+    // 补拉在流式期间替换列表会把正在写的气泡冲掉)
+    onStart: () => {
+      stopReplyWait()
+      scrollToBottom('auto')
+    },
+    // 这次没拿到正文(气泡空 / 网关 5xx / 流中断 / 主动停止)→ 进「等回复」后台补拉:
+    // 服务端很可能仍在算并会落库,拉到就自动替换成真实回复。
+    // id 由发送方给(新会话是服务端刚建的,当次渲染闭包里的 threadId 还是 null)
+    onEmptyReply: id => {
+      const target = id ?? threadId
+      if (target) void loadMessages(target, { silent: true })
+    },
   })
 
   const canSend = (input.trim().length > 0 || !!pendingImageUrl) && !sending && !uploading && !authError
@@ -351,10 +355,11 @@ export default function PrChatPage() {
           messages={messages}
           historyState={historyState}
           sending={sending}
-          staggerCount={staggerCountRef.current}
+          staggerCount={staggerCount}
           // 按「会话代号」重挂列表(切会话才重放入场动画);发首条消息时服务端回填的 threadId
           // 不该触发重挂,否则整屏消息会在流式结束那一刻重新动一遍
           threadKey={String(genRef.current)}
+          replyWait={replyWait}
           imgSrc={imgSrc}
           onToggleThinking={toggleThinking}
           onRetry={retry}

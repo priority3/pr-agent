@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { serveStatic } from 'hono/bun'
 
 import { ensureDatabaseReady } from '@/bootstrap'
@@ -22,12 +22,25 @@ app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 app.route('/api/activities', activitiesRoutes)
 
+/**
+ * 静态资源缓存策略。
+ *
+ * Reason: index.html 必须 no-cache —— 它引用的是内容哈希文件名(assets/pr-<hash>.js),
+ * 一旦浏览器复用旧 HTML,重新部署后就会去请求已经不存在的 hash 文件 → 白屏。
+ * 反过来,assets 文件名本身带哈希、内容不会变,可以放心长缓存(一年 + immutable)。
+ */
+function staticCache(path: string, c: Context) {
+  const p = path.replaceAll('\\', '/')
+  if (p.endsWith('.html')) c.header('Cache-Control', 'no-cache')
+  else if (p.includes('/assets/')) c.header('Cache-Control', 'public, max-age=31536000, immutable')
+}
+
 // 静态资源(Vite 单入口构建产物)。唯一前端入口 = H5 对话页,/ 与 /pr 都服务它。
 // 管理端点(withAuth 那批)保留但无内置界面,由宿主(如 runPaceFlow-admin 的「PR 伙伴」面板)提供。
 // API 路由已在前,未命中才落到这里;assets(/assets/*、/pr-logo.png 等)由通配 serveStatic 提供。
-app.get('/', serveStatic({ path: './client/dist/pr/index.html' }))
-app.get('/pr', serveStatic({ path: './client/dist/pr/index.html' }))
-app.use('/*', serveStatic({ root: './client/dist' }))
+app.get('/', serveStatic({ path: './client/dist/pr/index.html', onFound: staticCache }))
+app.get('/pr', serveStatic({ path: './client/dist/pr/index.html', onFound: staticCache }))
+app.use('/*', serveStatic({ root: './client/dist', onFound: staticCache }))
 
 // 启动序列:先建表(消除首个带会话请求的 "no such table"),再显式启动调度器,最后 serve。
 // scheduler 显式启动替代源仓"首个 GET /api/health 懒引导"。调度失败不阻断 HTTP 服务。

@@ -26,12 +26,6 @@ export function isAuthenticated(c: Context): boolean {
   return verifySessionToken(getCookie(c, SESSION_COOKIE_NAME))
 }
 
-/** admin 会话必需(管理端点;本仓无内置界面,由宿主界面或 curl 调用)。 */
-export const withAuth: MiddlewareHandler = async (c, next) => {
-  if (!isAuthenticated(c)) return c.json({ error: 'Unauthorized' }, 401)
-  await next()
-}
-
 /**
  * admin 会话 或 Bearer <token> 二选一。上报设备(iOS 快捷指令)带不了会话 cookie,
  * 用共享 token 鉴权;管理端(宿主界面 / curl)走会话 cookie。token 读取失败不升级为 500
@@ -61,3 +55,14 @@ export const withPrChatAuth = tokenOrSessionAuth('PR_CHAT_TOKEN', 'pr-chat')
 
 /** 健康数据上报:admin 会话 或 Bearer HEALTH_IMPORT_TOKEN。 */
 export const withHealthImportAuth = tokenOrSessionAuth('HEALTH_IMPORT_TOKEN', 'health-import')
+
+/**
+ * 管理端点:admin 会话 或 Bearer PR_ADMIN_TOKEN。
+ *
+ * Reason: 管理界面在宿主(runPaceFlow-admin)那边,它是**服务端到服务端**调本仓的
+ * 管理 API —— 拿不到本仓的会话 cookie,只认 cookie 的话宿主根本没法接。给它一条
+ * 共享 token 通路,浏览器 / curl 直接登录本仓拿 cookie 的老路径同时保留。
+ * 未配 PR_ADMIN_TOKEN 时行为与旧版完全一致(只认会话),不影响独立自部署。
+ */
+export const withAuth = tokenOrSessionAuth('PR_ADMIN_TOKEN', 'pr-admin')
+

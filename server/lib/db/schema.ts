@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
- * PR agent 自有库表集(24 表核心)。
+ * PR agent 自有库表集(26 表 = 24 表核心 + persona_state / persona_events)。
  *
  * 从源仓 src/lib/db/activities-schema.ts 逐字复制,精简到抽离蓝图 design §2.1 定的 24 张:
  * 22 张 PR-owned + 2 张平台表(activities / splits)。

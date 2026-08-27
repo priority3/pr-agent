@@ -6,6 +6,7 @@ import { startScheduler } from '@/lib/scheduler'
 import activitiesRoutes from '@/routes/activities'
 import authRoutes from '@/routes/auth'
 import healthRoutes from '@/routes/health'
+import personaRoutes from '@/routes/persona'
 import prRoutes from '@/routes/pr'
 
 // P3a:HTTP 层由 Next route handler 迁至 Hono。挂载 /api/auth、/api/pr、/api/health,
@@ -18,6 +19,8 @@ const app = new Hono()
 app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : 'Internal error' }, 500))
 
 app.route('/api/auth', authRoutes)
+// persona 先挂:Hono 前缀匹配下让 /api/pr/persona/* 落到专属路由而不是 prRoutes 的 404
+app.route('/api/pr/persona', personaRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 app.route('/api/activities', activitiesRoutes)

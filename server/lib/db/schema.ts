@@ -457,6 +457,35 @@ export const conversationMessages = sqliteTable('conversation_messages', {
     .default(sql`(unixepoch())`),
 })
 
+/**
+ * 数字分身投影(单例)。记忆/画像/健康之上的又一个投影层(与 friend_profile 同构):
+ * payload_json 存整份 persona.v1(traits + renderManifest),owner 是 server/lib/pr/persona.ts。
+ * 共库部署下宿主(admin)只 raw select 本表消费最终 JSON,不感知内部结构。
+ * 设计:claudedocs/persona-avatar-design.md
+ */
+export const personaState = sqliteTable('persona_state', {
+  id: text('id').primaryKey().default('singleton'),
+  payloadJson: text('payload_json').notNull(),
+  projectionVersion: integer('projection_version').notNull().default(1),
+  builderVersion: text('builder_version').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/** 分身特征变更史:每次投影 diff 非空才写,供成长回放/审计。 */
+export const personaEvents = sqliteTable('persona_events', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(), // trait_added | trait_changed | trait_removed
+  traitKey: text('trait_key').notNull(),
+  beforeJson: text('before_json'),
+  afterJson: text('after_json'),
+  sourceRef: text('source_ref'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
 // 导出类型
 export type Activity = typeof activities.$inferSelect
 export type NewActivity = typeof activities.$inferInsert
@@ -526,3 +555,9 @@ export type NewConversationThread = typeof conversationThreads.$inferInsert
 
 export type ConversationMessage = typeof conversationMessages.$inferSelect
 export type NewConversationMessage = typeof conversationMessages.$inferInsert
+
+export type PersonaState = typeof personaState.$inferSelect
+export type NewPersonaState = typeof personaState.$inferInsert
+
+export type PersonaEvent = typeof personaEvents.$inferSelect
+export type NewPersonaEvent = typeof personaEvents.$inferInsert

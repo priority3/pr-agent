@@ -4,9 +4,13 @@ import { serveStatic } from 'hono/bun'
 import { ensureDatabaseReady } from '@/bootstrap'
 import { startScheduler } from '@/lib/scheduler'
 import activitiesRoutes from '@/routes/activities'
+import activityFeedbackRoutes from '@/routes/activity-feedback'
 import authRoutes from '@/routes/auth'
 import healthRoutes from '@/routes/health'
+import lifeEventsRoutes from '@/routes/life-events'
 import prRoutes from '@/routes/pr'
+import raceGoalsRoutes from '@/routes/race-goals'
+import reviewsRoutes from '@/routes/reviews'
 
 // P3a:HTTP 层由 Next route handler 迁至 Hono。挂载 /api/auth、/api/pr、/api/health,
 // 未命中的路径交给 client(Vite 构建产物)静态托管。
@@ -18,6 +22,12 @@ const app = new Hono()
 app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : 'Internal error' }, 500))
 
 app.route('/api/auth', authRoutes)
+// 子路径路由必须先挂:Hono 前缀匹配下,让 /api/pr/reviews|race-goals|life-events|
+// activity-feedback 落到各自的专属路由,而不是 prRoutes 的 404。
+app.route('/api/pr/reviews', reviewsRoutes)
+app.route('/api/pr/race-goals', raceGoalsRoutes)
+app.route('/api/pr/life-events', lifeEventsRoutes)
+app.route('/api/pr/activity-feedback', activityFeedbackRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 app.route('/api/activities', activitiesRoutes)

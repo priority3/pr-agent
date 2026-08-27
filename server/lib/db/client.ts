@@ -363,6 +363,22 @@ export async function ensureActivitiesSchema(client: Client) {
         FOREIGN KEY (thread_id) REFERENCES conversation_threads(id) ON UPDATE no action ON DELETE cascade,
         FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE set null
       )`,
+      `CREATE TABLE IF NOT EXISTS persona_state (
+        id text PRIMARY KEY NOT NULL DEFAULT 'singleton',
+        payload_json text NOT NULL,
+        projection_version integer NOT NULL DEFAULT 1,
+        builder_version text NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS persona_events (
+        id text PRIMARY KEY NOT NULL,
+        kind text NOT NULL,
+        trait_key text NOT NULL,
+        before_json text,
+        after_json text,
+        source_ref text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
     ],
     'write',
   )
@@ -403,6 +419,7 @@ export async function ensureActivitiesSchema(client: Client) {
   await client.execute('CREATE INDEX IF NOT EXISTS idx_pr_feedback_events_target ON pr_feedback_events(target_type, target_id, created_at)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_pr_metric_events_name_created_at ON pr_metric_events(metric_name, created_at)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_conversation_messages_thread_id_created_at ON conversation_messages(thread_id, created_at)')
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_persona_events_created_at ON persona_events(created_at)')
 }
 
 export async function getActivitiesClient(): Promise<Client> {

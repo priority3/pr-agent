@@ -8,6 +8,7 @@ import activityFeedbackRoutes from '@/routes/activity-feedback'
 import authRoutes from '@/routes/auth'
 import healthRoutes from '@/routes/health'
 import lifeEventsRoutes from '@/routes/life-events'
+import personaRoutes from '@/routes/persona'
 import prRoutes from '@/routes/pr'
 import raceGoalsRoutes from '@/routes/race-goals'
 import reviewsRoutes from '@/routes/reviews'
@@ -22,8 +23,9 @@ const app = new Hono()
 app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : 'Internal error' }, 500))
 
 app.route('/api/auth', authRoutes)
-// 子路径路由必须先挂:Hono 前缀匹配下,让 /api/pr/reviews|race-goals|life-events|
-// activity-feedback 落到各自的专属路由,而不是 prRoutes 的 404。
+// 子路径路由必须先挂:Hono 前缀匹配下,让 /api/pr/persona|reviews|race-goals|
+// life-events|activity-feedback 落到各自的专属路由,而不是 prRoutes 的 404。
+app.route('/api/pr/persona', personaRoutes)
 app.route('/api/pr/reviews', reviewsRoutes)
 app.route('/api/pr/race-goals', raceGoalsRoutes)
 app.route('/api/pr/life-events', lifeEventsRoutes)

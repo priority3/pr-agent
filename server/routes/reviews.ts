@@ -103,7 +103,14 @@ reviews.post('/generate-batch', withAuth, async c => {
     return c.json({ error: 'activityIds is required' }, 400)
   }
 
-  return c.json(await generatePrReviewsForActivities(ids))
+  const result = await generatePrReviewsForActivities(ids)
+
+  // Reason: 有新鲜跑步入队了推送就立刻分发,不等下一次 10 分钟的定时任务 —— 跑完几秒内
+  // 收到复盘是既有体验(此前由宿主 scheduler 的 syncActivities 就地 dispatch 实现),
+  // 随这条链路迁进来,免得移交后变成最多延迟 10 分钟。
+  const dispatch = result.notified > 0 ? await dispatchPendingNotifications(5) : null
+
+  return c.json({ ...result, dispatch })
 })
 
 export default reviews

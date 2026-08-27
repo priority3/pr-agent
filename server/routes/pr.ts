@@ -8,9 +8,11 @@
  */
 import { Hono } from 'hono'
 
+import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
 import { getRuntimeSetting } from '@/lib/config'
 import { safeEqual } from '@/lib/crypto'
 import { missingField } from '@/lib/api-helpers'
+import { generateDailyReview } from '@/lib/pr/daily'
 import { chatWithPr, deleteConversationThread, listConversationMessages, listConversationThreads } from '@/lib/pr/chat'
 import { recordPrFeedbackEvent, type PrFeedbackEventType } from '@/lib/pr/feedback-loop'
 import { getExplicitHomeLocation, upsertExplicitHomeLocation } from '@/lib/pr/home-location'
@@ -432,6 +434,37 @@ pr.post('/weekly-review', withAuth, async c => {
   })
 
   return c.json(result)
+})
+
+/**
+ * 每日反思手动触发。
+ *
+ * Reason: 宿主此前用自己的 manualDailyReview() 提供这个手动入口(SchedulerPanel /
+ * POST /api/cron)。逻辑迁回本仓后手动入口也得跟过来,否则「定时任务归 pr-agent、
+ * 但只能等到点」——排查和补跑都没抓手。
+ */
+pr.post('/daily-review', withAuth, async c => {
+  let body: Record<string, unknown> = {}
+  try {
+    body = await c.req.json()
+  } catch {
+    // 允许空 body
+  }
+
+  const result = await generateDailyReview({
+    date: typeof body.date === 'string' ? body.date : undefined,
+    force: body.force === true,
+  })
+
+  return c.json(result)
+})
+
+/** 通知派发手动触发(同上:定时任务归本仓后,手动补发的入口也留在本仓)。 */
+pr.post('/notifications/dispatch', withAuth, async c => {
+  const limitParam = Number(c.req.query('limit') ?? 10)
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 50) : 10
+
+  return c.json(await dispatchPendingNotifications(limit))
 })
 
 // ── 复盘(reviews:自 /api/activities/reviews* 迁入并重命名)─────────────

@@ -8,10 +8,11 @@
  */
 import { Hono } from 'hono'
 
+import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
 import { getRuntimeSetting } from '@/lib/config'
 import { safeEqual } from '@/lib/crypto'
 import { missingField } from '@/lib/api-helpers'
-import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
+import { generateDailyReview } from '@/lib/pr/daily'
 import { chatWithPr, deleteConversationThread, listConversationMessages, listConversationThreads } from '@/lib/pr/chat'
 import { recordPrFeedbackEvent, type PrFeedbackEventType } from '@/lib/pr/feedback-loop'
 import { getExplicitHomeLocation, upsertExplicitHomeLocation } from '@/lib/pr/home-location'
@@ -19,7 +20,6 @@ import { archiveMemory, confirmMemory, getFriendProfile, listMemories, type Memo
 import { getPrFlywheel, getPrMetrics } from '@/lib/pr/metrics'
 import { getHomeLocation, invalidateHomeLocationCache } from '@/lib/pr/providers/environment'
 import { ingestKnowledgeDocument } from '@/lib/pr/rag'
-import { enqueueReviewNotification, generatePrReviewForActivity, listCurrentPrReviews } from '@/lib/pr/review'
 import { getAgentRunDetail, getContextSnapshotForRun, listAgentRuns } from '@/lib/pr/state'
 import { readImageUpload, saveImageUpload, SUPPORTED_IMAGE_TYPES } from '@/lib/pr/uploads'
 import { generateWeeklyReview, listFriendDiaryEntries } from '@/lib/pr/weekly'
@@ -436,70 +436,36 @@ pr.post('/weekly-review', withAuth, async c => {
   return c.json(result)
 })
 
+/**
+ * 每日反思手动触发。
+ *
+ * Reason: 宿主此前用自己的 manualDailyReview() 提供这个手动入口(SchedulerPanel /
+ * POST /api/cron)。逻辑迁回本仓后手动入口也得跟过来,否则「定时任务归 pr-agent、
+ * 但只能等到点」——排查和补跑都没抓手。
+ */
+pr.post('/daily-review', withAuth, async c => {
+  let body: Record<string, unknown> = {}
+  try {
+    body = await c.req.json()
+  } catch {
+    // 允许空 body
+  }
+
+  const result = await generateDailyReview({
+    date: typeof body.date === 'string' ? body.date : undefined,
+    force: body.force === true,
+  })
+
+  return c.json(result)
+})
+
+/** 通知派发手动触发(同上:定时任务归本仓后,手动补发的入口也留在本仓)。 */
+pr.post('/notifications/dispatch', withAuth, async c => {
+  const limitParam = Number(c.req.query('limit') ?? 10)
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 50) : 10
+
+  return c.json(await dispatchPendingNotifications(limit))
+})
+
 // ── 复盘(reviews:自 /api/activities/reviews* 迁入并重命名)─────────────
-pr.get('/reviews', withAuth, async c => {
-  const limitParam = Number(c.req.query('limit') ?? 20)
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 50) : 20
-  const kinds = c.req.query('kind')?.split(',').filter(Boolean)
-  const reviews = kinds && kinds.length
-    ? await listCurrentPrReviews(limit, kinds)
-    : await listCurrentPrReviews(limit)
-
-  return c.json({ reviews }, 200, { 'Cache-Control': 'no-store' })
-})
-
-pr.post('/reviews/notify', withAuth, async c => {
-  let body: Record<string, unknown>
-  try {
-    body = await c.req.json()
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400)
-  }
-
-  const miss = missingField(body, ['reviewId'])
-  if (miss) return c.json({ error: `${miss} is required` }, 400)
-
-  const notificationId = await enqueueReviewNotification(String(body.reviewId))
-  if (!notificationId) {
-    return c.json({ error: 'Review not found' }, 404)
-  }
-
-  const dispatchNow = body.dispatchNow !== false
-  const dispatch = dispatchNow ? await dispatchPendingNotifications(1) : null
-
-  return c.json({ notificationId, dispatch })
-})
-
-pr.post('/reviews/regenerate', withAuth, async c => {
-  let body: Record<string, unknown>
-  try {
-    body = await c.req.json()
-  } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400)
-  }
-
-  const miss = missingField(body, ['activityId'])
-  if (miss) return c.json({ error: `${miss} is required` }, 400)
-
-  const activityId = String(body.activityId)
-  const review = await generatePrReviewForActivity(activityId, {
-    force: true,
-    enqueueNotification: body.enqueueNotification !== false,
-    trigger: 'manual_review',
-  })
-
-  if (!review) {
-    return c.json({ error: 'Activity not found' }, 404)
-  }
-
-  await recordPrFeedbackEvent({
-    targetType: 'activity',
-    targetId: activityId,
-    eventType: 'regenerate',
-    metadata: { reviewId: review.id },
-  })
-
-  return c.json({ review })
-})
-
 export default pr

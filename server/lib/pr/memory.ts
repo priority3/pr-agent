@@ -860,4 +860,10 @@ export async function projectFriendProfile() {
         updatedAt: new Date(),
       },
     })
+
+  // 数字分身投影挂在画像投影尾部:一个挂点覆盖全部触发源(记忆变更/健康上报/周总结/画像路由)。
+  // fire-and-forget——LLM 蒸馏可能秒级,不能拖慢记忆确认等前台操作;失败只记日志,cron 兜底重算。
+  void import('./persona')
+    .then(mod => mod.projectPersona())
+    .catch(error => console.warn('[persona] 投影失败:', (error as Error).message))
 }

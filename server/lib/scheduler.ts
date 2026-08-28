@@ -17,6 +17,7 @@ import { performSync, isSourceCredentialed, type SyncSource } from './ingest/ser
 import { generateDailyReview } from './pr/daily'
 import { generateFriendDiary } from './pr/diary'
 import { reconcileMemories, runMemoryMaintenance } from './pr/memory'
+import { projectPersona } from './pr/persona'
 import { generatePrReviewsForActivities } from './pr/review'
 import { reclaimStaleRuns } from './pr/state'
 import { generateWeeklyReview } from './pr/weekly'
@@ -120,6 +121,18 @@ async function jobRetentionCleanup() {
   }
 }
 
+// 数字分身投影兜底:事件驱动为主(projectFriendProfile 尾部挂钩);此处日更一次,
+// 让 daysUntilRace / 训练负荷这类"随日期自然变化"的 state.* 不依赖记忆变更也能刷新。
+async function jobPersonaProjection() {
+  console.log('[Scheduler] Running persona projection job...')
+  try {
+    const result = await projectPersona()
+    console.log(`[Scheduler] persona_projection ${result.updated ? `updated (${result.events} trait events)` : 'skipped (input unchanged)'}`)
+  } catch (err) {
+    console.warn(`[Scheduler] persona_projection error: ${(err as Error).message}`)
+  }
+}
+
 // 运动数据同步(Keep/Strava,opt-in)。source 取 SYNC_SOURCE(默认 keep);仅当对应凭据 env
 // 已配才实际跑。同步出新活动后联动生成 PR 复盘(review.ts 内按"仅近 24h 完成才推通知"门控)。
 async function jobSync() {
@@ -170,6 +183,8 @@ const DEFAULT_JOBS: JobDef[] = [
   { id: 'friend_diary', name: 'PR 老友日记', cron: '31 21 * * 0', handler: jobFriendDiary },
   // 记忆维护:每天 3:33 衰减长期无新证据的弱候选/陈旧习惯。
   { id: 'memory_maintenance', name: 'PR 记忆维护(衰减/新鲜度)', cron: '33 3 * * *', handler: jobMemoryMaintenance },
+  // 数字分身投影兜底:每天 3:47(记忆维护之后,顺带吸收其衰减结果)。
+  { id: 'persona_projection', name: 'PR 数字分身投影(兜底)', cron: '47 3 * * *', handler: jobPersonaProjection },
   { id: 'notification_dispatch', name: 'PR 通知分发', cron: '*/10 * * * *', handler: jobNotificationDispatch },
   { id: 'retention_cleanup', name: '数据保留清理', cron: '0 3 * * 0', handler: jobRetentionCleanup },
 ]

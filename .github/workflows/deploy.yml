@@ -34,7 +34,8 @@ jobs:
           PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          # 末尾换行不能少:OpenSSH 私钥缺 trailing newline 会报 error in libcrypto
+          printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
           ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: 同步源码

@@ -1,0 +1,90 @@
+name: deploy
+
+# main 有推送 → 自动部署到服务器。
+#
+# 机制:GitHub 托管 runner 把仓库内容 rsync 到服务器部署目录,再就地
+# `docker compose up -d --build`(两边 compose 都是 build: .,镜像在服务器上现场构建)。
+#
+# 为什么用 rsync 而不是在服务器上 git pull:服务器的 /root/pr-agent 不是 git 仓库
+# (只有源码副本 + .env + data/),rsync 不要求那边有 git,也不用给服务器配 GitHub 凭据。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # 支持手动重新部署(回滚后重放等)
+
+concurrency:
+  group: deploy-pr-agent
+  cancel-in-progress: false # 部署不可中断:半路取消会留下构建到一半的容器
+
+jobs:
+  # 先复用 checks 的内容:构建不过的东西不该上线。
+  checks:
+    uses: ./.github/workflows/checks.yml
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备 SSH
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 同步源码
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        # --delete 清掉服务器上已从仓库删除的文件(拆分收尾删了很多,不清会留僵尸)。
+        # 排除项是「服务器独有、仓库不该覆盖」的东西:
+        #   .env            —— 密钥与部署参数,只存在于服务器
+        #   docker-compose.yml —— 服务器版挂了 rpf_shared_data 外部卷等本地拓扑,与仓库示例不同
+        #   data/           —— 运行数据(上传的图片等)
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy -p $PORT -o BatchMode=yes" \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude 'docker-compose.yml' \
+            --exclude 'data' \
+            --exclude 'node_modules' \
+            ./ "$USER@$HOST:/root/pr-agent/"
+
+      - name: 重建并启动
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
+            'cd /root/pr-agent && docker compose up -d --build 2>&1 | tail -20'
+
+      - name: 部署后探活
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        # 容器起来 ≠ 服务可用。除 /api/health 外再验一个管理端点必须回 401 ——
+        # 回 404 说明路由没挂上(见 checks.yml 的同款判断)。
+        run: |
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          for i in $(seq 1 30); do
+            sleep 2
+            if curl -sf http://127.0.0.1:3040/api/health > /dev/null; then
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3040/api/pr/memories)
+              echo "health OK / GET /api/pr/memories → $code"
+              [ "$code" = "401" ] && exit 0
+              echo "管理端点未正确挂载(期望 401)"; exit 1
+            fi
+          done
+          echo "60s 内未就绪,最后 30 行日志:"
+          docker logs --tail 30 pr-agent
+          exit 1
+          REMOTE

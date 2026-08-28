@@ -1,0 +1,58 @@
+name: checks
+
+# PR 与 main 推送都跑一遍类型检查 + 构建。
+#
+# 为什么只有这两项:eval(scripts/eval)要真实 AI 网关凭据、会产生费用,不适合每次推送跑;
+# 需要时在本地或按需手动触发。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 依赖装在 Node 上:本仓运行时是 Bun,但依赖由 npm 管理(package-lock.json),
+      # 与 Dockerfile 里 `npm ci` 装依赖、Bun 只做运行时的分工保持一致(见 db24dd6)。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      # 前端构建产物(client/dist)是容器要托管的东西,构建失败等于部署即白屏。
+      - name: 构建前端
+        run: npm run build
+
+      # 服务端没有独立构建步骤(Bun 直接跑 TS),用启动自检兜底:
+      # 能起来说明路由挂载、import 链路都是通的 —— 这正是本轮改动最容易出问题的地方。
+      - name: 服务端启动自检
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          export PATH="$HOME/.bun/bin:$PATH"
+          DATABASE_URL=file:./data/ci.db \
+          ADMIN_SESSION_SECRET=ci-secret \
+          PR_SCHEDULER=off \
+          PORT=3999 \
+          bun run server/index.ts > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do
+            sleep 1
+            if curl -sf http://127.0.0.1:3999/api/health > /dev/null; then
+              echo "启动成功"
+              # 管理端点应回 401(无凭据),回 404 说明路由没挂上
+              code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3999/api/pr/memories)
+              echo "GET /api/pr/memories → $code"
+              [ "$code" = "401" ] || { echo "::error::管理端点未正确挂载(期望 401)"; exit 1; }
+              exit 0
+            fi
+          done
+          echo "::error::服务端 30s 内未就绪"
+          cat /tmp/server.log
+          exit 1

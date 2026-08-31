@@ -31,13 +31,13 @@ crontab -e   # 加一行:
 # 17 4 * * * /root/pr-agent/scripts/backup/backup-to-b2.sh >> /var/log/pr-backup.log 2>&1
 ```
 
-B2 侧(本地用已授权的 b2 CLI,一次性):
+B2 侧(**已于 2026-08-31 配置完成**,记录备查;重建 bucket 时重跑):
 
 ```bash
-# 30 天版本轮转 + 默认服务端加密
+# 全桶 30 天版本轮转 + 默认服务端加密。月度档是唯一文件名、永不被新版本
+# 隐藏,不受轮转影响;每日覆盖名的旧版本 30 天后自动清。
 b2 bucket update --default-server-side-encryption SSE-B2 \
-  --lifecycle-rule '{"daysFromHidingToDeleting":30,"fileNamePrefix":"db/"}' \
-  --lifecycle-rule '{"daysFromHidingToDeleting":30,"fileNamePrefix":"uploads/"}' \
+  --lifecycle-rule '{"daysFromHidingToDeleting":30,"fileNamePrefix":""}' \
   pr-agent allPrivate
 ```
 

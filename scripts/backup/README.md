@@ -14,7 +14,7 @@ shared.db 始终是唯一真相源;两条腿都只是副本,永不反向写回�
 | 库 | 内容 | 覆盖方式 |
 |---|---|---|
 | `shared.db`(卷 rpf_shared_data) | 活动/记忆/对话/复盘/健康/persona | 本脚本快照 + 活动另有 Turso 镜像 |
-| `admin.db`(卷 runpaceflow-admin-data) | admin 配置(app_settings)、访问分析历史、audit | 本脚本快照(默认列表已含) |
+| `admin.db`(卷 runpaceflow-admin-data) | admin 配置(app_settings)、访问分析历史、audit | 本脚本快照 + 通用镜像 → Turso(admin 仓 `db-mirror.ts`,半小时一轮) |
 | 主站 Turso 库 | 活动镜像 + insights | Turso 托管,本身即异地;insights 可再生 |
 | `eval.db` / Phoenix 卷 | 评测隔离库 / trace | 可丢弃,不备 |
 

@@ -18,7 +18,8 @@
 #      b2 bucket update --lifecycle-rule '{"daysFromHidingToDeleting":30,"fileNamePrefix":"db/"}' pr-agent allPrivate
 #
 # 环境变量(均有默认值,共库部署直接用;standalone 部署按需覆盖):
-#   PR_BACKUP_DB       shared.db 路径(默认 docker 卷 rpf_shared_data 内)
+#   PR_BACKUP_DBS      要快照的库,空格分隔(默认含 shared.db 与 admin.db,
+#                      缺失的路径警告跳过——standalone 部署天然只命中前者)
 #   PR_BACKUP_UPLOADS  uploads 目录(默认 /root/pr-agent/data/uploads)
 #   PR_BACKUP_REMOTE   rclone 目标(默认 b2:pr-agent)
 #   PR_BACKUP_AGE_RECIPIENT  可选:age 公钥,设置则上传前客户端加密
@@ -26,44 +27,58 @@
 # 恢复流程见同目录 README.md。
 set -euo pipefail
 
-DB_PATH=${PR_BACKUP_DB:-/var/lib/docker/volumes/rpf_shared_data/_data/shared.db}
+DB_PATHS=${PR_BACKUP_DBS:-"/var/lib/docker/volumes/rpf_shared_data/_data/shared.db /var/lib/docker/volumes/runpaceflow-admin-data/_data/admin.db"}
 UPLOADS_DIR=${PR_BACKUP_UPLOADS:-/root/pr-agent/data/uploads}
 REMOTE=${PR_BACKUP_REMOTE:-b2:pr-agent}
 AGE_RECIPIENT=${PR_BACKUP_AGE_RECIPIENT:-}
 
 command -v sqlite3 >/dev/null || { echo "[backup] 缺 sqlite3,先 apt-get install sqlite3"; exit 1; }
 command -v rclone >/dev/null || { echo "[backup] 缺 rclone,见脚本头部安装说明"; exit 1; }
-[ -f "$DB_PATH" ] || { echo "[backup] 找不到库文件: $DB_PATH(用 PR_BACKUP_DB 覆盖)"; exit 1; }
+if [ -n "$AGE_RECIPIENT" ] && ! command -v age >/dev/null; then
+  echo "[backup] 设置了 AGE_RECIPIENT 但缺 age"; exit 1
+fi
 
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT
 STAMP=$(date +%F)
+DONE=0
 
-# 1) 一致性快照:VACUUM INTO 会连 WAL 里未 checkpoint 的事务一起固化,
-#    产物是独立完整的库文件——直接 cp 正在写入的 .db 则可能拷出半截事务。
-SNAP="$WORKDIR/shared-$STAMP.db"
-sqlite3 "$DB_PATH" "VACUUM INTO '$SNAP'"
-gzip -9 "$SNAP"
-ARTIFACT="$SNAP.gz"
+for DB_PATH in $DB_PATHS; do
+  if [ ! -f "$DB_PATH" ]; then
+    echo "[backup] 跳过(不存在): $DB_PATH"
+    continue
+  fi
+  NAME=$(basename "$DB_PATH" .db)
 
-# 2) 可选客户端加密(库里是健康/记忆数据;B2 侧另有 SSE,这里是纵深防御)。
-if [ -n "$AGE_RECIPIENT" ]; then
-  command -v age >/dev/null || { echo "[backup] 设置了 AGE_RECIPIENT 但缺 age"; exit 1; }
-  age -r "$AGE_RECIPIENT" -o "$ARTIFACT.age" "$ARTIFACT"
-  ARTIFACT="$ARTIFACT.age"
-fi
-EXT=${ARTIFACT#*.db}
+  # 1) 一致性快照:VACUUM INTO 会连 WAL 里未 checkpoint 的事务一起固化,
+  #    产物是独立完整的库文件——直接 cp 正在写入的 .db 则可能拷出半截事务。
+  SNAP="$WORKDIR/$NAME-$STAMP.db"
+  sqlite3 "$DB_PATH" "VACUUM INTO '$SNAP'"
+  gzip -9 "$SNAP"
+  ARTIFACT="$SNAP.gz"
 
-# 3) 上传。固定文件名 = 每天生成新版本,旧版本由 bucket 生命周期规则保留/清理;
-#    每月 1 号额外留一份月度存档(不同名,长期保留)。
-rclone copyto "$ARTIFACT" "$REMOTE/db/shared-latest.db$EXT"
-if [ "$(date +%d)" = "01" ]; then
-  rclone copyto "$ARTIFACT" "$REMOTE/db/monthly/shared-$(date +%Y-%m).db$EXT"
-fi
+  # 2) 可选客户端加密(库里是健康/记忆/配置数据;B2 侧另有 SSE,这里是纵深防御)。
+  if [ -n "$AGE_RECIPIENT" ]; then
+    age -r "$AGE_RECIPIENT" -o "$ARTIFACT.age" "$ARTIFACT"
+    ARTIFACT="$ARTIFACT.age"
+  fi
+  EXT=${ARTIFACT#*.db}
+
+  # 3) 上传。固定文件名 = 每天生成新版本,旧版本由 bucket 生命周期规则保留/清理;
+  #    每月 1 号额外留一份月度存档(不同名,长期保留)。
+  rclone copyto "$ARTIFACT" "$REMOTE/db/$NAME-latest.db$EXT"
+  if [ "$(date +%d)" = "01" ]; then
+    rclone copyto "$ARTIFACT" "$REMOTE/db/monthly/$NAME-$(date +%Y-%m).db$EXT"
+  fi
+  echo "[backup] $NAME: $(du -h "$ARTIFACT" | cut -f1) → $REMOTE/db/$NAME-latest.db$EXT"
+  DONE=$((DONE + 1))
+done
+
+[ "$DONE" -gt 0 ] || { echo "[backup] 一个库都没备到,检查 PR_BACKUP_DBS"; exit 1; }
 
 # 4) uploads 增量同步(图片本来就是文件,不走快照;本地已删的远端隐藏 30 天后清)。
 if [ -d "$UPLOADS_DIR" ]; then
   rclone sync "$UPLOADS_DIR" "$REMOTE/uploads"
 fi
 
-echo "[backup] $STAMP 完成: $(du -h "$ARTIFACT" | cut -f1) → $REMOTE"
+echo "[backup] $STAMP 完成: $DONE 个库"

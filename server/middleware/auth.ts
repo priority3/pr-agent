@@ -66,3 +66,6 @@ export const withHealthImportAuth = tokenOrSessionAuth('HEALTH_IMPORT_TOKEN', 'h
  */
 export const withAuth = tokenOrSessionAuth('PR_ADMIN_TOKEN', 'pr-admin')
 
+/** pr-lore 采集投递:admin 会话 或 Bearer LORE_INGEST_TOKEN(lore webhook 用独立 token,不共用管理 token)。 */
+export const withLoreIngestAuth = tokenOrSessionAuth('LORE_INGEST_TOKEN', 'lore-ingest')
+

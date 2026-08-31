@@ -30,6 +30,8 @@
 | `GET /api/pr/agent-runs` · `/agent-runs/:id` · `/context/:runId` | 会话 | 运行记录与上下文快照(排查用) |
 | `GET /api/pr/metrics` · `/flywheel` | 会话 | 指标 / 飞轮 |
 | `GET /api/pr/persona` · `/persona/history` · `POST /persona/reproject` | 会话 | 数字分身投影(traits + 渲染清单)/ 特征变更史 / 手动重投影 |
+| `GET /api/pr/persona/live` | 会话 | 实时状态(代理 priority.me presence,30s 缓存,永不落库) |
+| `POST /api/pr/persona/ingest` | 会话 或 `LORE_INGEST_TOKEN` | pr-lore 采集投递(lore.capture.v1 → MemoryCurator 蒸馏为候选记忆) |
 | `POST /api/pr/knowledge` | 会话 | 知识库文档导入(RAG) |
 | `POST /api/pr/feedback` | 会话 | 反馈事件 |
 | `GET /api/health` | 公开 | 存活探针 |
@@ -49,7 +51,7 @@
 | AI 网关 | `ANTHROPIC_API_KEY` / `_BASE_URL` / `_MODEL` / `_VISION_MODEL`;`OPENAI_API_KEY` / `_BASE_URL` / `_MODEL` / `_API_FORMAT` |
 | 对话 | `PR_CHAT_TOKEN`、`PR_CHAT_MAX_TOKENS`、`PR_UPLOAD_DIR` |
 | 记忆 | `PR_MEMORY_DECAY_DAYS`、`PR_MEMORY_RECONCILE_APPLY` |
-| 数字分身 | `PR_PERSONA_LLM`(`off` = 只跑确定性投影) |
+| 数字分身 | `PR_PERSONA_LLM`(`off` = 只跑确定性投影)、`PR_PRESENCE_URL`(实时状态上游,留空关闭)、`LORE_INGEST_TOKEN`(pr-lore 投递令牌) |
 | 复盘 | `PR_REVIEW_MODEL`、`PR_REVIEW_PROVIDER`、`PR_RETENTION_DAYS` |
 | RAG 向量 | `PR_EMBEDDING_API_KEY` / `_BASE_URL` / `_MODEL`(留空 = 纯 BM25) |
 | 摄入 & 数据源 | `HEALTH_IMPORT_TOKEN`、`SYNC_SOURCE`、`KEEP_MOBILE` / `_PASSWORD`、`STRAVA_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` |

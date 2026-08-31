@@ -1,13 +1,18 @@
-# 异地备份(B2 冷快照)
+# 异地备份(B2)
 
-heyun 2026-08-30 整机失联事故的直接产物。数据持久化整体策略两条腿:
+heyun 2026-08-30 整机失联事故的直接产物。数据持久化三层,职责不重叠:
 
-| 数据 | 机制 | 位置 |
-|---|---|---|
-| 活动/GPS(体积大、本就公开) | 同步后双写镜像(admin 仓 `sync/mirror.ts`) | 主站 Turso(**活副本**,RPO≈0) |
-| 记忆/对话/复盘/健康/persona + uploads | 本目录脚本,每日冷快照 | Backblaze B2(**死备份**,RPO≤1 天) |
+| 层 | 机制 | RPO | 防什么 |
+|---|---|---|---|
+| 实时复制 | **Litestream** WAL 流式推 B2(`litestream.yml`) | 秒级 | 机器突然消失,最后几小时的对话/记忆 |
+| 每日快照 | 本目录脚本(`backup-to-b2.sh`,cron) | ≤1 天 | 实时层自身故障/被污染;Write Only 密钥使其不可篡改 |
+| 结构化镜像 | 活动 → Turso(admin 仓 `sync/mirror.ts`);admin.db → Turso(`db-mirror.ts`) | 分钟级 | 主站取数 + 可直接 SQL 查询的活副本 |
 
-shared.db 始终是唯一真相源;两条腿都只是副本,永不反向写回。
+shared.db 始终是唯一真相源;所有层都只是副本,永不反向写回。
+
+> 为什么「双写到 B2」是 WAL 流而不是逐行同步:对象存储只认整文件,不存在
+> 行级写入;Litestream 在每次事务提交后把 WAL 增量片段(KB 级)推上去,
+> 就是数据库对对象存储的正确"双写"形态。
 
 ## 全库清单与覆盖(共库部署)
 
@@ -44,6 +49,50 @@ b2 bucket update --default-server-side-encryption SSE-B2 \
 密钥要求:rclone 用的应用密钥应为 **Write Only + 限定 pr-agent bucket**——
 服务器被入侵也删不掉历史版本;轮转全靠上面的生命周期规则。
 
+## 实时复制(Litestream,秒级 RPO)
+
+standalone:`.env` 填好 `LITESTREAM_*` 三键(见 `litestream.yml` 头注)后
+`docker compose --profile backup up -d` 即可。
+
+共库部署(shared.db + admin.db 两库、两个命名卷)在服务器 compose 加:
+
+```yaml
+  litestream:
+    image: litestream/litestream:0.3
+    restart: unless-stopped
+    command: replicate -config /etc/litestream.yml
+    env_file: [.env]
+    volumes:
+      - rpf_shared_data:/data/shared
+      - runpaceflow-admin-data:/data/admin
+      - /root/litestream.yml:/etc/litestream.yml:ro
+```
+
+`/root/litestream.yml`(把仓库版的 dbs 段换成):
+
+```yaml
+dbs:
+  - path: /data/shared/shared.db
+    replicas:
+      - { type: s3, bucket: pr-agent, path: litestream/shared,
+          endpoint: ${LITESTREAM_S3_ENDPOINT}, sync-interval: 10s, retention: 72h }
+  - path: /data/admin/admin.db
+    replicas:
+      - { type: s3, bucket: pr-agent, path: litestream/admin,
+          endpoint: ${LITESTREAM_S3_ENDPOINT}, sync-interval: 10s, retention: 72h }
+```
+
+**密钥注意**:Litestream 要自行清理旧 WAL 代际,需要 Read & Write 密钥——
+**不能**复用日快照那把 Write Only 的;单独建一把(仍限定本 bucket)。
+两层因此互为保险:实时层密钥若被盗用删档,不可篡改的 Write Only 快照层仍在。
+
+灾难恢复时优先从实时层还原(比日快照多救回当天的数据):
+
+```bash
+litestream restore -config /etc/litestream.yml -o shared.db /data/shared/shared.db
+# 实时层不可用(代际损坏等)再退回日快照:见下方「恢复手册」
+```
+
 ## bucket 内布局
 
 ```
@@ -70,7 +119,9 @@ cd /root/pr-agent && docker compose up -d
 
 ## 已知取舍
 
-- RPO ≤ 1 天:快照间隔内的对话/记忆会丢。对单用户陪伴系统可接受;
-  不可接受时的升级路径是整库切 Turso(`DATABASE_URL=libsql://`,原生支持)。
+- 实时层(Litestream)与快照层(cron)刻意共存:前者管 RPO,后者管不可篡改
+  与"实时层自身出问题"的兜底——两层用不同权限的密钥,互为保险。
 - 备份跑在 host 而非容器内:VACUUM INTO 需要 sqlite3,而运行镜像(oven/bun)
   刻意保持精简;host cron 也不受容器重建影响。
+- 更彻底的形态仍是整库切 Turso(`DATABASE_URL=libsql://`,原生支持)——
+  届时本目录降级为 Turso dump 的快照工具。

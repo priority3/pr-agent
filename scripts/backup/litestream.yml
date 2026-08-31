@@ -1,0 +1,23 @@
+# Litestream 实时复制配置(standalone 单库版;共库部署的变体见 README「实时复制」节)。
+#
+# 原理:盯住 SQLite 的 WAL,每次事务提交后把增量片段(KB 级)流到 B2——
+# 这就是「数据库双写到对象存储」的正确形态;逐行同步写对象存储不存在,
+# 因为对象存储只认整文件。RPO 由 1 天(日快照)缩到秒级。
+#
+# 所需 env(.env 内,由 compose 注入):
+#   LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY
+#     —— B2 应用密钥。注意:Litestream 要管理自己的代际文件(会删旧 WAL 段),
+#        需要 Read & Write 权限,**不能**复用日快照那把 Write Only 密钥;
+#        单独建一把、限定到本 bucket,泄漏面由 litestream/ 前缀隔离
+#   LITESTREAM_S3_ENDPOINT —— B2 的 S3 端点,如 https://s3.us-west-004.backblazeb2.com
+dbs:
+  - path: /data/pr.db
+    replicas:
+      - type: s3
+        bucket: pr-agent
+        path: litestream/pr
+        endpoint: ${LITESTREAM_S3_ENDPOINT}
+        # 每 10s 推一次增量(默认 1s 对单用户过于频繁,徒增 Class A 请求数)
+        sync-interval: 10s
+        # WAL 代际保留 72h;长期留存交给每日快照 + 月度档,职责不重叠
+        retention: 72h

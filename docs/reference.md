@@ -32,6 +32,7 @@
 | `GET /api/pr/persona` · `/persona/history` · `POST /persona/reproject` | 会话 | 数字分身投影(traits + 渲染清单)/ 特征变更史 / 手动重投影 |
 | `GET /api/pr/persona/live` | 会话 | 实时状态(代理 priority.me presence,30s 缓存,永不落库) |
 | `POST /api/pr/persona/ingest` | 会话 或 `LORE_INGEST_TOKEN` | pr-lore 采集投递(lore.capture.v1 → MemoryCurator 蒸馏为候选记忆) |
+| `GET·PUT /api/pr/settings` | 会话 | AI 网关运行时配置(白名单 8 键,密文落库,改完即生效免重启) |
 | `POST /api/pr/knowledge` | 会话 | 知识库文档导入(RAG) |
 | `POST /api/pr/feedback` | 会话 | 反馈事件 |
 | `GET /api/health` | 公开 | 存活探针 |
@@ -48,7 +49,7 @@
 |---|---|
 | 数据库 | `DATABASE_URL`(默认 `file:./data/pr.db`)、`DATABASE_AUTH_TOKEN`(远程 libsql 才需) |
 | 管理端 | `ADMIN_PASSWORD`、`ADMIN_SESSION_SECRET`(管理 API 鉴权,无内置界面)、`SETTINGS_ENCRYPTION_KEY` |
-| AI 网关 | `ANTHROPIC_API_KEY` / `_BASE_URL` / `_MODEL` / `_VISION_MODEL`;`OPENAI_API_KEY` / `_BASE_URL` / `_MODEL` / `_API_FORMAT` |
+| AI 网关 | `ANTHROPIC_API_KEY` / `_BASE_URL` / `_MODEL` / `_VISION_MODEL`;`OPENAI_API_KEY` / `_BASE_URL` / `_MODEL` / `_API_FORMAT`(这 8 键可被 `/api/pr/settings` 运行时覆盖,库内值优先) |
 | 对话 | `PR_CHAT_TOKEN`、`PR_CHAT_MAX_TOKENS`、`PR_UPLOAD_DIR` |
 | 记忆 | `PR_MEMORY_DECAY_DAYS`、`PR_MEMORY_RECONCILE_APPLY` |
 | 数字分身 | `PR_PERSONA_LLM`(`off` = 只跑确定性投影)、`PR_PRESENCE_URL`(实时状态上游,留空关闭)、`LORE_INGEST_TOKEN`(pr-lore 投递令牌) |
@@ -122,6 +123,9 @@ npm run eval -- --limit=5   # 行为评测小样本(详见 scripts/eval/README.m
 - **工具轮次耗尽时硬停**:用 `tool_choice: none` 在协议层禁止再调工具,而不是靠提示词"请你别调了"
   ——后者依赖模型配合,不同模型表现不一。
 - **记忆需确认**:新记忆一律候选态,用户确认或累计足够独立证据才转正。
+- **配置以 env 为基底,仅 AI 网关 8 键可运行时覆盖**:宿主面板改网关(url/key/model)免重启;
+  鉴权与拓扑类键刻意排除在白名单外——库内数据被篡改也动不了鉴权与数据面。覆盖值
+  aes-256-gcm 密文落库,备份链路(快照/实时复制)接触不到明文密钥。
 - **常跑地点靠推导,不靠设置项**:没有显式设置时,从最近有轨迹的户外活动起点按 0.02°(≈2 km)
   网格聚类推。三条规则都写成代码常量(`STALE_AFTER_DAYS=90` / `ALTERNATE_MIN_SHARE=0.25` /
   `ALTERNATE_MIN_SEPARATION_KM=1.5`)而不是配置:① 主簇最新活动超过 90 天就标 `stale`,上下文与

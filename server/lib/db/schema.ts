@@ -486,6 +486,19 @@ export const personaEvents = sqliteTable('persona_events', {
     .default(sql`(unixepoch())`),
 })
 
+/**
+ * 运行时配置覆盖(白名单键,值 aes-256-gcm 密文)。
+ * Reason: AI 网关(url/key/model)要能从宿主面板改而免重启;其余配置仍属 env。
+ * owner:server/lib/runtime-overrides.ts;白名单在写入口硬编码,防库内数据篡改鉴权类 env。
+ */
+export const runtimeSettings = sqliteTable('runtime_settings', {
+  key: text('key').primaryKey(),
+  valueEncrypted: text('value_encrypted').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
 // 导出类型
 export type Activity = typeof activities.$inferSelect
 export type NewActivity = typeof activities.$inferInsert

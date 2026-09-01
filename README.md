@@ -35,6 +35,11 @@ PR:  3天前那6公里，今天就轻松跑个5公里左右找找感觉，
 **周末它会写日记。**
 以一个老朋友的视角,回顾你这一周。
 
+**它眼中的你,有一个数字分身。**
+已确认的记忆会投影成一份结构化画像(`/api/pr/persona`:特征 + 渲染清单 + 成长史),
+宿主面板用 3D 形象和浮动气泡把它画出来——你说过的伤病、目标、爱好都长在人物身边;
+还能接入实时状态(presence)和个人 wiki(pr-lore 采集 → 蒸馏成候选记忆)。
+
 ---
 
 ## 上手
@@ -57,7 +62,8 @@ PR_CHAT_TOKEN=随便一串长随机字符    # 手机打开对话页的钥匙
 
 - **手机上跟它聊**:`http://<你的地址>/pr?t=<PR_CHAT_TOKEN>`——存书签,以后点开就聊,不用登录
 
-数据全在 `./data/pr.db` 一个文件里。备份就是拷走它。
+数据全在 `./data/pr.db` 一个文件里。备份用 `sqlite3 pr.db "VACUUM INTO '备份路径'"`
+(库开着 WAL,直接 cp 可能拷出半截事务)。
 
 ## 关于管理
 
@@ -65,7 +71,8 @@ PR_CHAT_TOKEN=随便一串长随机字符    # 手机打开对话页的钥匙
 
 看它记住了什么、复盘写了什么、改掉它记错的东西——这些都是 HTTP 接口(`/api/pr/memories`、
 `/api/pr/reviews`、`/api/pr/profile` 等,用 `ADMIN_PASSWORD` 登录换会话 cookie 后调用)。
-你可以直接 curl,也可以接自己的界面。完整清单见 [docs/reference.md](./docs/reference.md)。
+你可以直接 curl,也可以接自己的界面(现成参考:[runPaceFlow-admin](https://github.com/priority3/runPaceFlow-admin)
+的 PR 伙伴 / 数字分身 / 模型网关面板全部经这些接口实现)。完整清单见 [docs/reference.md](./docs/reference.md)。
 
 ## 让它认识你
 
@@ -84,7 +91,7 @@ PR_CHAT_TOKEN=随便一串长随机字符    # 手机打开对话页的钥匙
 
 | 想换什么 | 怎么换 |
 |---|---|
-| **模型** | 任何 Anthropic 协议或 OpenAI 兼容的网关,填 `*_BASE_URL` + `*_MODEL` |
+| **模型** | 任何 Anthropic 协议或 OpenAI 兼容的网关:env 填 `*_BASE_URL` + `*_MODEL`,或调 `/api/pr/settings` 运行时改,免重启 |
 | **数据来源** | Keep / Strava opt-in,或用通用导入接口自己喂 |
 | **推送** | 配 `PUSHPLUS_TOKEN` 就推微信;不配就安静待着 |
 | **知识库检索** | 配 embedding 服务走向量+BM25 混检;不配就纯 BM25,照样能用 |

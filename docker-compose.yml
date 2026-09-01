@@ -13,3 +13,17 @@ services:
     volumes:
       # 单文件库 + 上传目录持久化(备份只需拷这个目录)
       - ./data:/app/data
+
+  # 可选:Litestream 实时复制(WAL 流式推 B2,秒级 RPO)。
+  # 开启:docker compose --profile backup up -d;所需 env 见 scripts/backup/litestream.yml 头注。
+  litestream:
+    image: litestream/litestream:0.3
+    container_name: pr-agent-litestream
+    profiles: ['backup']
+    restart: unless-stopped
+    command: replicate -config /etc/litestream.yml
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./scripts/backup/litestream.yml:/etc/litestream.yml:ro

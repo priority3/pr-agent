@@ -10,6 +10,7 @@ import healthRoutes from '@/routes/health'
 import lifeEventsRoutes from '@/routes/life-events'
 import personaRoutes from '@/routes/persona'
 import prRoutes from '@/routes/pr'
+import settingsRoutes from '@/routes/settings'
 import raceGoalsRoutes from '@/routes/race-goals'
 import reviewsRoutes from '@/routes/reviews'
 
@@ -30,6 +31,7 @@ app.route('/api/pr/reviews', reviewsRoutes)
 app.route('/api/pr/race-goals', raceGoalsRoutes)
 app.route('/api/pr/life-events', lifeEventsRoutes)
 app.route('/api/pr/activity-feedback', activityFeedbackRoutes)
+app.route('/api/pr/settings', settingsRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 app.route('/api/activities', activitiesRoutes)

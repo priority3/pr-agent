@@ -370,6 +370,11 @@ export async function ensureActivitiesSchema(client: Client) {
         builder_version text NOT NULL,
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS runtime_settings (
+        key text PRIMARY KEY NOT NULL,
+        value_encrypted text NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
       `CREATE TABLE IF NOT EXISTS persona_events (
         id text PRIMARY KEY NOT NULL,
         kind text NOT NULL,

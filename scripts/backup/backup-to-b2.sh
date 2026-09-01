@@ -66,9 +66,9 @@ for DB_PATH in $DB_PATHS; do
 
   # 3) 上传。固定文件名 = 每天生成新版本,旧版本由 bucket 生命周期规则保留/清理;
   #    每月 1 号额外留一份月度存档(不同名,长期保留)。
-  rclone copyto "$ARTIFACT" "$REMOTE/db/$NAME-latest.db$EXT"
+  rclone copyto --no-check-dest "$ARTIFACT" "$REMOTE/db/$NAME-latest.db$EXT"
   if [ "$(date +%d)" = "01" ]; then
-    rclone copyto "$ARTIFACT" "$REMOTE/db/monthly/$NAME-$(date +%Y-%m).db$EXT"
+    rclone copyto --no-check-dest "$ARTIFACT" "$REMOTE/db/monthly/$NAME-$(date +%Y-%m).db$EXT"
   fi
   echo "[backup] $NAME: $(du -h "$ARTIFACT" | cut -f1) → $REMOTE/db/$NAME-latest.db$EXT"
   DONE=$((DONE + 1))

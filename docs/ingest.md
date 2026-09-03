@@ -76,14 +76,16 @@
 
 返回 `{ imported, skipped, errors? }`。
 
-## 自动同步(可选)
+## 自动同步
 
-设 `SYNC_SOURCE=keep` 或 `strava` 并填好对应凭据,调度器每小时增量拉一次:
+本进程**不直连 Keep/Strava**。直采数据源是 [runPaceFlow-admin](https://github.com/priority3/runPaceFlow-admin)
+的职责:它每小时增量拉一次并写 `activities` 表,把 `DATABASE_URL` 指向同一个库,这里读到的就是它同步的结果。
 
-- **Keep**:`KEEP_MOBILE` + `KEEP_PASSWORD`(手机号密码登录)
-- **Strava**:`STRAVA_CLIENT_ID` + `STRAVA_CLIENT_SECRET` + `STRAVA_REFRESH_TOKEN`(OAuth)
+Reason: 同步要处理凭据轮换、分运动类型的增量游标、跨源判重、赛事匹配这些数据平面的事,
+和本进程「记忆 / 复盘 / 对话」的职责是两回事;两边各留一套只会漂移(历史上确实漂过)。
+只想要一个纯 agent、不想跑 admin 的话,用上面的通用导入接口自己喂即可。
 
-拉到新活动会自动生成复盘;只有近 24 小时完成的活动才会推送通知,历史回填静默入库。
+新活动无论从哪条路进来,都会自动生成复盘;只有近 24 小时完成的活动才会推送通知,历史回填静默入库。
 
 ### 富化开关
 

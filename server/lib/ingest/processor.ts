@@ -144,25 +144,6 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
   }
 }
 
-/**
- * 批量同步活动
- * @param rawActivities 原始活动数组
- * @returns 同步的活动 ID 数组
- */
-export async function syncActivities(rawActivities: RawActivity[]): Promise<string[]> {
-  const activityIds: string[] = []
-
-  for (const rawActivity of rawActivities) {
-    try {
-      const id = await syncActivity(rawActivity)
-      activityIds.push(id)
-    } catch (error) {
-      console.error(`Failed to sync activity ${rawActivity.id}, continuing...`, error)
-    }
-  }
-
-  return activityIds
-}
 
 /**
  * 根据 GPX 轨迹点生成分段数据

@@ -5,15 +5,14 @@
  * - job 配置改静态 DEFAULT_JOBS(不建 scheduler_jobs 表、不读 admin.db);cron 可被同名 env 覆盖。
  * - 去掉 recordJobRun(scheduler_jobs 表不在 standalone schema),改控制台日志记录。
  * - 只保留 PR-agent 相关 job;删掉 admin 专属的 insights(ai.ts 未移植)/daily_report(访问分析)。
- * - sync(Keep/Strava)P4b 已接:调 ingest performSync(source 取 SYNC_SOURCE,默认 keep),
- *   仅当对应凭据 env 已配才实际跑;同步出新活动后联动 generatePrReviewsForActivities 生成复盘/推送。
+ * - 不含运动数据同步:直采 Keep/Strava 的职责归 runPaceFlow-admin(它写 activities,本进程读同一个库)。
+ *   活动进入本进程的通路是 POST /api/activities/import —— 谁来喂都行,不绑定具体数据源。
  * - 显式 startScheduler()(server 启动时调),替代源仓"首个 GET /api/health 懒启动"。
  * - 总开关 PR_SCHEDULER(默认开;off/false/0 = 一个 job 都不注册),供共库部署用,见下。
  */
 import cron from 'node-cron'
 
 import { dispatchPendingNotifications } from './notifications/dispatcher'
-import { performSync, isSourceCredentialed, type SyncSource } from './ingest/service'
 import { generateDailyReview } from './pr/daily'
 import { generateFriendDiary } from './pr/diary'
 import { reconcileMemories, runMemoryMaintenance } from './pr/memory'
@@ -133,38 +132,6 @@ async function jobPersonaProjection() {
   }
 }
 
-// 运动数据同步(Keep/Strava,opt-in)。source 取 SYNC_SOURCE(默认 keep);仅当对应凭据 env
-// 已配才实际跑。同步出新活动后联动生成 PR 复盘(review.ts 内按"仅近 24h 完成才推通知"门控)。
-async function jobSync() {
-  const source = (process.env.SYNC_SOURCE || 'keep') as SyncSource
-  const settings = await getRuntimeSettings()
-  if (!isSourceCredentialed(source, settings)) {
-    console.warn(`[Scheduler] sync 跳过:数据源 ${source} 凭据未配(见 .env 的 KEEP_*/STRAVA_*)`)
-    return
-  }
-
-  console.log(`[Scheduler] Running sync job (source=${source})...`)
-  const startTime = Date.now()
-  try {
-    const result = await performSync({ source })
-    if (result.success && result.activityIds.length > 0) {
-      // Reason: 新活动入库后立即生成复盘;review.ts 只对近 24h 完成的活动推送,历史回填静默入库不刷屏。
-      const reviews = await generatePrReviewsForActivities(result.activityIds)
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.log(
-        `[Scheduler] sync ${source}: ${result.activitiesCount} new activities; reviews generated ${reviews.generated}, notified ${reviews.notified}, failed ${reviews.failed} in ${elapsed}s`,
-      )
-    } else {
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.log(
-        `[Scheduler] sync ${source}: ${result.success ? 'no new activities' : `failed (${result.errorMessage})`} in ${elapsed}s`,
-      )
-    }
-  } catch (err) {
-    console.warn(`[Scheduler] sync error: ${(err as Error).message}`)
-  }
-}
-
 // ─── 静态 job 配置 ──────────────────────────────────────────────────────────
 
 interface JobDef {
@@ -197,11 +164,6 @@ function resolveCron(id: string, fallback: string): string {
   return fallback
 }
 
-/** 是否配置了活动数据源(决定是否注册 P4b 的 sync job)。 */
-function isSyncConfigured(): boolean {
-  return Boolean(process.env.SYNC_SOURCE || process.env.KEEP_MOBILE || process.env.STRAVA_REFRESH_TOKEN)
-}
-
 /**
  * 调度总开关。默认开启(独立自部署时后台任务必须自己跑)。
  *
@@ -219,10 +181,6 @@ function setupJobs() {
   scheduledTasks = []
 
   const jobs: JobDef[] = [...DEFAULT_JOBS]
-  // sync 是可选数据源 job;仅当配置了数据源(SYNC_SOURCE / Keep / Strava 凭据)才注册,默认不注册。
-  if (isSyncConfigured()) {
-    jobs.push({ id: 'sync', name: '运动数据同步(Keep/Strava)', cron: '0 * * * *', handler: jobSync })
-  }
 
   for (const job of jobs) {
     const expr = resolveCron(job.id, job.cron)

@@ -404,6 +404,28 @@ export async function ensureActivitiesSchema(client: Client) {
         source_ref text,
         created_at integer DEFAULT (unixepoch()) NOT NULL
       )`,
+      // H5 对话的一次性入口链接与它兑换出的设备令牌。两张表都只存 sha256(token),
+      // 校验时哈希入参再比对 —— 见 server/lib/pr/chat-access.ts。
+      `CREATE TABLE IF NOT EXISTS pr_chat_invites (
+        id text PRIMARY KEY NOT NULL,
+        token_hash text NOT NULL UNIQUE,
+        expires_at integer NOT NULL,
+        used_at integer,
+        device_id text,
+        device_token_enc text,
+        note text,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS pr_chat_devices (
+        id text PRIMARY KEY NOT NULL,
+        token_hash text NOT NULL UNIQUE,
+        label text,
+        invite_id text,
+        expires_at integer NOT NULL,
+        last_used_at integer,
+        revoked_at integer,
+        created_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
     ],
     'write',
   )

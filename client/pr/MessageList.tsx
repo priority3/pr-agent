@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import AuthImage from './AuthImage'
 import { copyText } from './helpers'
 import { CheckIcon, CopyIcon, PrAvatar, Spinner } from './icons'
 import type { HistoryState, Msg } from './types'
@@ -16,7 +17,8 @@ interface Props {
    * 刻意不复用三点 loading / streaming 外观——那会假装「正在打字」,而这里只是在等服务端。
    */
   replyWait: 'waiting' | 'timeout' | null
-  imgSrc: (url: string) => string
+  /** 取图要带的设备令牌(见 AuthImage) */
+  token: string | null
   onToggleThinking: (id: string) => void
   onRetry: (id: string) => void
   onReloadHistory: () => void
@@ -24,7 +26,7 @@ interface Props {
 
 /** 消息区内容:三态(骨架 / 加载失败 / 就绪)+ 气泡列表 + 等待中的三点。 */
 export default function MessageList(props: Props) {
-  const { messages, historyState, sending, staggerCount, threadKey, imgSrc } = props
+  const { messages, historyState, sending, staggerCount, threadKey, token } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -64,7 +66,7 @@ export default function MessageList(props: Props) {
                     opacity: failed ? 0.75 : 1,
                   }}
                 >
-                  {m.imageUrl && <img src={imgSrc(m.imageUrl)} alt="图片" className="block max-h-72 w-full object-cover" />}
+                  {m.imageUrl && <AuthImage url={m.imageUrl} token={token} alt="图片" className="block max-h-72 w-full object-cover" />}
                   {m.content && m.content !== '[图片]' && (
                     <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed">{m.content}</div>
                   )}
@@ -106,7 +108,7 @@ export default function MessageList(props: Props) {
                   borderRadius: '18px 18px 18px 6px',
                 }}
               >
-                {m.imageUrl && <img src={imgSrc(m.imageUrl)} alt="图片" className="block max-h-72 w-full object-cover" />}
+                {m.imageUrl && <AuthImage url={m.imageUrl} token={token} alt="图片" className="block max-h-72 w-full object-cover" />}
                 {thinkingLive && (
                   <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--pr-muted)' }}>
                     {m.thinking}

@@ -46,21 +46,30 @@ PR:  3天前那6公里，今天就轻松跑个5公里左右找找感觉，
 
 ```bash
 git clone https://github.com/priority3/pr-agent && cd pr-agent
-cp .env.example .env     # 填 3 个值就能跑,见下
+cp .env.example .env     # 填 2 个值就能跑,见下
 docker compose up -d
 ```
 
-最少只要填这三个:
+最少只要填这两个:
 
 ```bash
 ANTHROPIC_API_KEY=sk-...        # 或用 OPENAI_* 那组
 ADMIN_PASSWORD=你的管理密码
-PR_CHAT_TOKEN=随便一串长随机字符    # 手机打开对话页的钥匙
 ```
 
-起来之后:
+起来之后,给手机签一条入口链接(**一次性,7 天有效**):
 
-- **手机上跟它聊**:`http://<你的地址>/pr?t=<PR_CHAT_TOKEN>`——存书签,以后点开就聊,不用登录
+```bash
+curl -c /tmp/pr.cookie -X POST http://<你的地址>/api/auth/login \
+  -H 'Content-Type: application/json' -d '{"password":"<ADMIN_PASSWORD>"}'
+
+curl -b /tmp/pr.cookie -X POST http://<你的地址>/api/pr/access/links
+# → {"url":"http://<你的地址>/pr?t=…", ...}
+```
+
+手机点开那条链接,它就换成这台设备自己的钥匙(存在手机本地,90 天,常用不掉线)——
+链接当即作废。之后存书签点 `/pr` 就能聊,不用登录。丢了手机可以单独吊销那台设备,
+见 [docs/reference.md](./docs/reference.md#拿入口链接)。
 
 数据全在 `./data/pr.db` 一个文件里。备份用 `sqlite3 pr.db "VACUUM INTO '备份路径'"`
 (库开着 WAL,直接 cp 可能拷出半截事务)。

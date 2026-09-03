@@ -7,6 +7,7 @@ import activitiesRoutes from '@/routes/activities'
 import jobsRoutes from '@/routes/jobs'
 import activityFeedbackRoutes from '@/routes/activity-feedback'
 import authRoutes from '@/routes/auth'
+import chatAccessRoutes from '@/routes/chat-access'
 import healthRoutes from '@/routes/health'
 import lifeEventsRoutes from '@/routes/life-events'
 import personaRoutes from '@/routes/persona'
@@ -33,6 +34,7 @@ app.route('/api/pr/race-goals', raceGoalsRoutes)
 app.route('/api/pr/life-events', lifeEventsRoutes)
 app.route('/api/pr/activity-feedback', activityFeedbackRoutes)
 app.route('/api/pr/settings', settingsRoutes)
+app.route('/api/pr/access', chatAccessRoutes)
 app.route('/api/pr/jobs', jobsRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)

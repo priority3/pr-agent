@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react'
 
+import AuthImage from './AuthImage'
 import { CameraIcon, CloseIcon, ImageIcon, PlusIcon, SendIcon, Spinner, StopIcon } from './icons'
 
 interface Props {
@@ -12,14 +13,15 @@ interface Props {
   sending: boolean
   uploading: boolean
   canSend: boolean
-  /** 登录失效:整个输入区禁用(再发也只会失败) */
+  /** 令牌失效:整个输入区禁用(再发也只会失败) */
   disabled: boolean
   authError: boolean
   notice: string | null
   pendingImageUrl: string | null
   onClearImage: () => void
   onPickFile: (file: File) => void
-  imgSrc: (url: string) => string
+  /** 取图要带的设备令牌(见 AuthImage) */
+  token: string | null
 }
 
 /** 毛玻璃输入区:一体化胶囊(＋附件 · 输入 · 发送),聚焦整体亮 ring。 */
@@ -65,7 +67,7 @@ export default function Composer(props: Props) {
     <div ref={containerRef} className="pr-glass absolute inset-x-0 bottom-0 z-20 px-3 pt-2.5" style={{ paddingBottom: 'calc(var(--pr-safe-bottom) + 10px)' }}>
       {props.authError && (
         <div className="pr-pop mb-2 rounded-xl px-3 py-2 text-xs" style={{ background: 'var(--pr-sel)', color: 'var(--pr-text-2)' }}>
-          登录已失效,请重新从推送链接进入。
+          访问已失效(过期或被吊销),去管理端另签一条一次性链接。
         </div>
       )}
       {props.notice && (
@@ -79,7 +81,7 @@ export default function Composer(props: Props) {
         {pendingImageUrl && (
           <div className="flex px-3 pt-3">
             <div className="pr-pop relative">
-              <img src={props.imgSrc(pendingImageUrl)} alt="待发送" className="h-16 w-16 rounded-xl object-cover" style={{ border: '1px solid var(--pr-line-strong)' }} />
+              <AuthImage url={pendingImageUrl} token={props.token} alt="待发送" className="h-16 w-16 rounded-xl object-cover" />
               <button type="button" onClick={props.onClearImage} className="pr-tap absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)' }} aria-label="移除图片">
                 <CloseIcon size={11} />
               </button>
@@ -118,7 +120,7 @@ export default function Composer(props: Props) {
             onBlur={() => setInputFocused(false)}
             rows={1}
             disabled={disabled}
-            placeholder={disabled ? '登录已失效' : '和 PR 说点什么…'}
+            placeholder={disabled ? '访问已失效' : '和 PR 说点什么…'}
             className="pr-input pr-scroll max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[15px] outline-none disabled:opacity-50"
             style={{ color: 'var(--pr-text)' }}
           />

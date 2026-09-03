@@ -5,15 +5,23 @@
  * - job 配置改静态 DEFAULT_JOBS(不建 scheduler_jobs 表、不读 admin.db);cron 可被同名 env 覆盖。
  * - 去掉 recordJobRun(scheduler_jobs 表不在 standalone schema),改控制台日志记录。
  * - 只保留 PR-agent 相关 job;删掉 admin 专属的 insights(ai.ts 未移植)/daily_report(访问分析)。
- * - sync(Keep/Strava)P4b 已接:调 ingest performSync(source 取 SYNC_SOURCE,默认 keep),
- *   仅当对应凭据 env 已配才实际跑;同步出新活动后联动 generatePrReviewsForActivities 生成复盘/推送。
+ * - 不含运动数据同步:直采 Keep/Strava 的职责归 runPaceFlow-admin(它写 activities,本进程读同一个库)。
+ *   活动进入本进程的通路是 POST /api/activities/import —— 谁来喂都行,不绑定具体数据源。
  * - 显式 startScheduler()(server 启动时调),替代源仓"首个 GET /api/health 懒启动"。
  * - 总开关 PR_SCHEDULER(默认开;off/false/0 = 一个 job 都不注册),供共库部署用,见下。
  */
 import cron from 'node-cron'
 
+import {
+  loadOverrides,
+  nextRunAt,
+  recordJobRun,
+  resolveCron,
+  schedulerTimezone,
+  type JobOverride,
+} from './scheduler-store'
+
 import { dispatchPendingNotifications } from './notifications/dispatcher'
-import { performSync, isSourceCredentialed, type SyncSource } from './ingest/service'
 import { generateDailyReview } from './pr/daily'
 import { generateFriendDiary } from './pr/diary'
 import { reconcileMemories, runMemoryMaintenance } from './pr/memory'
@@ -133,49 +141,18 @@ async function jobPersonaProjection() {
   }
 }
 
-// 运动数据同步(Keep/Strava,opt-in)。source 取 SYNC_SOURCE(默认 keep);仅当对应凭据 env
-// 已配才实际跑。同步出新活动后联动生成 PR 复盘(review.ts 内按"仅近 24h 完成才推通知"门控)。
-async function jobSync() {
-  const source = (process.env.SYNC_SOURCE || 'keep') as SyncSource
-  const settings = await getRuntimeSettings()
-  if (!isSourceCredentialed(source, settings)) {
-    console.warn(`[Scheduler] sync 跳过:数据源 ${source} 凭据未配(见 .env 的 KEEP_*/STRAVA_*)`)
-    return
-  }
-
-  console.log(`[Scheduler] Running sync job (source=${source})...`)
-  const startTime = Date.now()
-  try {
-    const result = await performSync({ source })
-    if (result.success && result.activityIds.length > 0) {
-      // Reason: 新活动入库后立即生成复盘;review.ts 只对近 24h 完成的活动推送,历史回填静默入库不刷屏。
-      const reviews = await generatePrReviewsForActivities(result.activityIds)
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.log(
-        `[Scheduler] sync ${source}: ${result.activitiesCount} new activities; reviews generated ${reviews.generated}, notified ${reviews.notified}, failed ${reviews.failed} in ${elapsed}s`,
-      )
-    } else {
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.log(
-        `[Scheduler] sync ${source}: ${result.success ? 'no new activities' : `failed (${result.errorMessage})`} in ${elapsed}s`,
-      )
-    }
-  } catch (err) {
-    console.warn(`[Scheduler] sync error: ${(err as Error).message}`)
-  }
-}
-
 // ─── 静态 job 配置 ──────────────────────────────────────────────────────────
 
-interface JobDef {
+export interface JobDef {
   id: string
   name: string
   cron: string
   handler: () => Promise<void>
 }
 
-// 单用户静态配置(替代源仓 admin.db 的 scheduler_jobs 表)。cron 可被 CRON_<ID> env 覆盖。
-const DEFAULT_JOBS: JobDef[] = [
+// job 清单以代码为准(id/显示名/默认 cron/handler)。用户改过的 cron 与开关存 scheduler_jobs 表,
+// 优先级 DB > CRON_<ID> env > 这里的默认值;见 scheduler-store.ts。
+export const DEFAULT_JOBS: JobDef[] = [
   // 事件驱动(健康上报触发)为主;此处是缺失时的正午幂等兜底。
   { id: 'pr_daily_review', name: 'PR 每日反思(兜底)', cron: '0 12 * * *', handler: jobPrDailyReview },
   { id: 'weekly_review', name: 'PR 周总结', cron: '0 20 * * 0', handler: jobWeeklyReview },
@@ -189,19 +166,6 @@ const DEFAULT_JOBS: JobDef[] = [
   { id: 'retention_cleanup', name: '数据保留清理', cron: '0 3 * * 0', handler: jobRetentionCleanup },
 ]
 
-/** cron 表达式:优先取 CRON_<ID> env(校验通过才用),否则用静态默认。 */
-function resolveCron(id: string, fallback: string): string {
-  const override = process.env[`CRON_${id.toUpperCase()}`]
-  if (override && cron.validate(override)) return override
-  if (override) console.warn(`[Scheduler] 忽略非法 cron 覆盖 CRON_${id.toUpperCase()}=${override}`)
-  return fallback
-}
-
-/** 是否配置了活动数据源(决定是否注册 P4b 的 sync job)。 */
-function isSyncConfigured(): boolean {
-  return Boolean(process.env.SYNC_SOURCE || process.env.KEEP_MOBILE || process.env.STRAVA_REFRESH_TOKEN)
-}
-
 /**
  * 调度总开关。默认开启(独立自部署时后台任务必须自己跑)。
  *
@@ -214,23 +178,52 @@ function isSchedulerDisabled(): boolean {
   return ['off', 'false', '0'].includes(flag)
 }
 
-function setupJobs() {
+/**
+ * 给 handler 包一层记账:落一条执行历史(耗时 / 成败 / 简讯),让面板能看到
+ * 「上次执行」与最近若干次结果。handler 自身抛错不再逃逸到 node-cron
+ * (它会吞掉并只打印),而是被记成一条失败记录。
+ */
+function withRunRecording(job: JobDef): () => Promise<void> {
+  return async () => {
+    const startedAt = Math.floor(Date.now() / 1000)
+    const t0 = Date.now()
+    try {
+      await job.handler()
+      await recordJobRun(job.id, { startedAt, durationMs: Date.now() - t0, ok: true, message: 'ok' })
+    } catch (err) {
+      const message = (err as Error).message || String(err)
+      console.warn(`[Scheduler] ${job.id} failed: ${message}`)
+      await recordJobRun(job.id, { startedAt, durationMs: Date.now() - t0, ok: false, message })
+    }
+  }
+}
+
+async function setupJobs() {
   for (const task of scheduledTasks) task.stop()
   scheduledTasks = []
 
-  const jobs: JobDef[] = [...DEFAULT_JOBS]
-  // sync 是可选数据源 job;仅当配置了数据源(SYNC_SOURCE / Keep / Strava 凭据)才注册,默认不注册。
-  if (isSyncConfigured()) {
-    jobs.push({ id: 'sync', name: '运动数据同步(Keep/Strava)', cron: '0 * * * *', handler: jobSync })
-  }
+  const overrides = await loadOverrides()
+  const tz = schedulerTimezone()
 
-  for (const job of jobs) {
-    const expr = resolveCron(job.id, job.cron)
-    const task = cron.schedule(expr, job.handler)
+  for (const job of DEFAULT_JOBS) {
+    const override: JobOverride | undefined = overrides.get(job.id)
+    if (override && !override.enabled) {
+      console.log(`[Scheduler] Skipped "${job.name}" (已在面板关闭)`)
+      continue
+    }
+    const { expression, source } = resolveCron(job.id, job.cron, override)
+    // Reason: 显式传 timezone。不传的话 node-cron 用进程本地时区,而容器里 TZ 常常没设
+    // (= UTC),于是「0 21 * * *」实际在北京时间凌晨 5 点触发。
+    const task = cron.schedule(expression, withRunRecording(job), { timezone: tz })
     scheduledTasks.push(task)
-    console.log(`[Scheduler] Registered "${job.name}" with cron: ${expr}`)
+    const next = nextRunAt(expression)
+    console.log(
+      `[Scheduler] Registered "${job.name}" cron: ${expression} (${source}, tz=${tz})` +
+        (next ? ` next=${new Date(next * 1000).toISOString()}` : ''),
+    )
   }
 }
+
 
 export async function startScheduler() {
   if (schedulerStarted) return
@@ -254,17 +247,17 @@ export async function startScheduler() {
     return
   }
 
-  setupJobs()
-  console.log('[Scheduler] Started - static single-user job config')
+  await setupJobs()
+  console.log(`[Scheduler] Started - ${DEFAULT_JOBS.length} jobs, tz=${schedulerTimezone()}`)
 }
 
-/** 重载调度(env 改动后可调;单用户场景一般无需)。 */
-export function reloadScheduler() {
+/** 重载调度。改完 cron/开关后调它即可生效,免重启。 */
+export async function reloadScheduler() {
   if (isSchedulerDisabled()) {
     console.log('[Scheduler] PR_SCHEDULER=off - 跳过重载')
     return
   }
 
-  setupJobs()
+  await setupJobs()
   console.log('[Scheduler] Reloaded')
 }

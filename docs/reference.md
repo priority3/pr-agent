@@ -55,7 +55,7 @@
 | 数字分身 | `PR_PERSONA_LLM`(`off` = 只跑确定性投影)、`PR_PRESENCE_URL`(实时状态上游,留空关闭)、`LORE_INGEST_TOKEN`(pr-lore 投递令牌) |
 | 复盘 | `PR_REVIEW_MODEL`、`PR_REVIEW_PROVIDER`、`PR_RETENTION_DAYS` |
 | RAG 向量 | `PR_EMBEDDING_API_KEY` / `_BASE_URL` / `_MODEL`(留空 = 纯 BM25) |
-| 摄入 & 数据源 | `HEALTH_IMPORT_TOKEN`、`SYNC_SOURCE`、`KEEP_MOBILE` / `_PASSWORD`、`STRAVA_CLIENT_ID` / `_SECRET` / `_REFRESH_TOKEN` |
+| 摄入 | `HEALTH_IMPORT_TOKEN`(通用导入接口的鉴权;不直连 Keep/Strava,那是 admin 的职责) |
 | 富化 | `ENRICH_WEATHER`、`ENRICH_RACE_MATCH`(默认关) |
 | 通知 | `PUSHPLUS_TOKEN`、`PUBLIC_BASE_URL`(推送链接前缀) |
 | 可观测 | `PHOENIX_COLLECTOR_ENDPOINT` / `_PROJECT_NAME` / `_API_KEY`(需自行注册 OTel provider) |

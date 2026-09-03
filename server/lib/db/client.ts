@@ -375,6 +375,26 @@ export async function ensureActivitiesSchema(client: Client) {
         value_encrypted text NOT NULL,
         updated_at integer DEFAULT (unixepoch()) NOT NULL
       )`,
+      // 定时任务的**运行时覆盖**。job 的 id/name/默认 cron 仍在 scheduler.ts 的 DEFAULT_JOBS
+      // 里(代码是唯一 job 清单),这张表只存用户改过的 cron 与开关 —— 所以新增/删除 job
+      // 不需要迁移,表里的孤儿行会被直接忽略。
+      `CREATE TABLE IF NOT EXISTS scheduler_jobs (
+        id text PRIMARY KEY NOT NULL,
+        cron_expression text,
+        enabled integer DEFAULT 1 NOT NULL,
+        updated_at integer DEFAULT (unixepoch()) NOT NULL
+      )`,
+      // 每次执行落一行,按 job 只保留最近 N 条(见 scheduler.ts 的 recordJobRun)。
+      `CREATE TABLE IF NOT EXISTS scheduler_job_runs (
+        id integer PRIMARY KEY AUTOINCREMENT,
+        job_id text NOT NULL,
+        started_at integer NOT NULL,
+        duration_ms integer,
+        ok integer NOT NULL,
+        message text
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_job_runs_job_started
+        ON scheduler_job_runs (job_id, started_at DESC)`,
       `CREATE TABLE IF NOT EXISTS persona_events (
         id text PRIMARY KEY NOT NULL,
         kind text NOT NULL,

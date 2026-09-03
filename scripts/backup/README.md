@@ -113,7 +113,7 @@ docker volume create rpf_shared_data
 cp shared.db /var/lib/docker/volumes/rpf_shared_data/_data/shared.db
 rclone copy b2:pr-agent/uploads /root/pr-agent/data/uploads
 cd /root/pr-agent && docker compose up -d
-# 3. 活动数据缺口(快照时点之后的)由 Keep 增量同步自动补;
+# 3. 活动数据缺口(快照时点之后的)由 runPaceFlow-admin 的 Keep 增量同步补回;
 #    也可反向核对主站 Turso 的镜像副本。
 ```
 

@@ -7,7 +7,7 @@
  * 与源仓的差异(design §4 可插拔化):
  * - 渠道从硬编 pushplus 改为 NotificationChannel 接口(resolveChannel 选当前可用渠道)。
  * - 无可用渠道(PUSHPLUS_TOKEN 未配)→ 优雅跳过并 warn,不认领、不抛错、不误标 failed。
- * - 链接从 admin app_settings 改为 env(PUBLIC_BASE_URL + PR_CHAT_TOKEN)构造,去掉原硬编回退域名。
+ * - 链接从 admin app_settings 改为 env(PUBLIC_BASE_URL)构造,去掉原硬编回退域名;不再带访问令牌。
  */
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 
@@ -40,11 +40,16 @@ function resolveChannel(): NotificationChannel | null {
   return getPushPlusChannel()
 }
 
-/** H5 对话入口链接:PUBLIC_BASE_URL(可空,留空则为相对路径)+ 可选 PR_CHAT_TOKEN。 */
+/**
+ * H5 对话入口链接:PUBLIC_BASE_URL(可空,留空则为相对路径)+ `/pr`,**不带令牌**。
+ *
+ * Reason: 原先拼的是 `?t=<PR_CHAT_TOKEN>` —— 那枚长期共享令牌于是被写进每一条推送,
+ * 在推送服务端(PushPlus)的消息体里长期留存。现在设备令牌存在手机本地,链接只需
+ * 把人带到对话页;设备令牌过期后去管理端签一条一次性链接(见 lib/pr/chat-access.ts)。
+ */
 function buildChatLink(): string {
   const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '')
-  const token = process.env.PR_CHAT_TOKEN
-  return token ? `${base}/pr?t=${encodeURIComponent(token)}` : `${base}/pr`
+  return `${base}/pr`
 }
 
 async function claimPending(limit: number, workerId: string) {

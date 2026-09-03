@@ -82,6 +82,7 @@ curl -b /tmp/pr.cookie -X POST localhost:3030/api/pr/access/links \
 | 复盘 | `PR_REVIEW_MODEL`、`PR_REVIEW_PROVIDER`、`PR_RETENTION_DAYS` |
 | RAG 向量 | `PR_EMBEDDING_API_KEY` / `_BASE_URL` / `_MODEL`(留空 = 纯 BM25) |
 | 摄入 | `HEALTH_IMPORT_TOKEN`(通用导入接口的鉴权;不直连 Keep/Strava,那是 admin 的职责) |
+| 对话内触发同步 | `SYNC_WEBHOOK_URL` / `SYNC_WEBHOOK_TOKEN`(留空 = 对话里没有 `sync_activities` 工具) |
 | 富化 | `ENRICH_WEATHER`、`ENRICH_RACE_MATCH`(默认关) |
 | 通知 | `PUSHPLUS_TOKEN`、`PUBLIC_BASE_URL`(推送链接前缀) |
 | 可观测 | `PHOENIX_COLLECTOR_ENDPOINT` / `_PROJECT_NAME` / `_API_KEY`(需自行注册 OTel provider) |

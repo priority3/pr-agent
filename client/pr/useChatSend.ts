@@ -179,7 +179,9 @@ export function useChatSend(deps: Deps) {
           patchAssistant(m => ({ ...m, content: m.content + (data.delta ?? ''), toolNote: null, thinkingSeconds: m.thinkingSeconds ?? elapsed() }))
         } else if (event === 'tool') {
           ensureAssistant()
-          patchAssistant(m => ({ ...m, toolNote: '查数据中…' }))
+          // 同步比查询慢一个量级(要打外部 API),沿用「查数据中」会让人以为卡住了。
+          const note = data.name === 'sync_activities' ? '同步数据中…' : '查数据中…'
+          patchAssistant(m => ({ ...m, toolNote: note }))
         } else if (event === 'text_reset') {
           patchAssistant(m => ({ ...m, content: '' }))
         } else if (event === 'replace') {

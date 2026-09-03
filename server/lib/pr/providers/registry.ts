@@ -14,6 +14,7 @@ import { knowledgeProvider } from './knowledge'
 import { memoryProvider } from './memory'
 import { profileProvider } from './profile'
 import { raceGoalsProvider } from './race-goals'
+import { syncProvider } from './sync'
 import type { ChatContextInput, ContextBlock, ContextProvider } from './types'
 
 export const PR_CONTEXT_PROVIDERS: ContextProvider[] = [
@@ -24,6 +25,8 @@ export const PR_CONTEXT_PROVIDERS: ContextProvider[] = [
   activitiesProvider,
   raceGoalsProvider,
   environmentProvider,
+  // 只提供工具、不产出上下文区块(load 恒为 null),排在最后。
+  syncProvider,
 ]
 
 /** 单个 provider 的装配结果观测(写进 build_context 快照,接管原 discardedContext 语义)。 */

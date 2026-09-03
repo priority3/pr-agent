@@ -4,7 +4,7 @@
 
 | 路径 | 说明 |
 |---|---|
-| `/pr`(及 `/`) | H5 对话(手机优先)。`?t=<PR_CHAT_TOKEN>` 免登录进入,token 存 localStorage |
+| `/pr`(及 `/`) | H5 对话(手机优先)。`?t=<一次性令牌>` 进入 → 兑换成设备令牌存 localStorage |
 
 唯一的内置页面就是对话页(`/` 与 `/pr` 返回同一份 HTML)。管理界面不内置,见下「API」。
 未命中的路径落到静态托管:命中 `client/dist` 里的文件就返回该文件(`/assets/*`、`/pr-logo.png`),
@@ -18,10 +18,13 @@
 | 方法 & 路径 | 鉴权 | 说明 |
 |---|---|---|
 | `POST /api/auth/login` · `/logout` | 口令 | 管理接口登录(`ADMIN_PASSWORD`)/ 登出 |
-| `GET·POST /api/pr/chat` | `PR_CHAT_TOKEN` | 拉历史 / 发消息(`stream:true` 走 SSE) |
-| `GET·DELETE /api/pr/threads` | `PR_CHAT_TOKEN` | 会话列表 / 删除 |
-| `POST /api/pr/upload` | `PR_CHAT_TOKEN` | 图片上传(≤10MB) |
-| `GET /api/pr/image/:name` | 查询串 `?t=` | 取图(`<img>` 不能带 header,故走查询串) |
+| `GET·POST /api/pr/chat` | 设备令牌 | 拉历史 / 发消息(`stream:true` 走 SSE) |
+| `GET·DELETE /api/pr/threads` | 设备令牌 | 会话列表 / 删除 |
+| `POST /api/pr/upload` | 设备令牌 | 图片上传(≤10MB) |
+| `GET /api/pr/image/:name` | 设备令牌 | 取图(前端 fetch 成 blob,令牌只走请求头) |
+| `POST /api/pr/access/session` | 公开 | 一次性令牌换设备令牌(限流 10 次/分钟/IP) |
+| `POST·GET /api/pr/access/links` | 会话 | 签发一次性入口链接 / 看签发记录 |
+| `GET /api/pr/access/devices` · `DELETE /devices/:id` | 会话 | 设备清单 / 吊销某台设备 |
 | `GET /api/pr/memories` · `PATCH /:id` · `POST /:id/confirm` · `/:id/archive` | 会话 | 长期记忆的查看 / 编辑 / 确认 / 归档 |
 | `GET /api/pr/profile` · `GET·PUT·DELETE /api/pr/profile/home-location` | 会话 | 伙伴画像 / 常跑地点 |
 | `GET /api/pr/reviews` · `POST /reviews/notify` · `/reviews/regenerate` | 会话 | 复盘列表 / 重发 / 重新生成 |
@@ -41,6 +44,29 @@
 
 摄入两条的字段详见 [ingest.md](./ingest.md)。
 
+## 拿入口链接
+
+对话页没有共享密码,进门靠**一次性链接**。链接由管理接口签发,7 天内有效、**只能用一次**:
+
+```bash
+curl -c /tmp/pr.cookie -X POST localhost:3030/api/auth/login \
+  -H 'Content-Type: application/json' -d '{"password":"<ADMIN_PASSWORD>"}'
+
+curl -b /tmp/pr.cookie -X POST localhost:3030/api/pr/access/links \
+  -H 'Content-Type: application/json' -d '{"note":"iPhone"}'
+# → {"url":"https://…/pr?t=…","expiresAt":"…"}
+```
+
+手机打开那条 `url`,页面会把一次性令牌换成**这台设备专属**的令牌存进 localStorage
+(90 天,每次使用滑动续期),链接随即作废,地址栏里的 `t` 也会被抹掉。之后从书签或推送里
+点 `/pr` 直接就能聊 —— 推送链接本身不再携带任何令牌。
+
+丢了手机或想踢掉某台设备:`GET /api/pr/access/devices` 找到它,
+`DELETE /api/pr/access/devices/:id` 吊销(最迟一分钟内生效 —— 校验结果有 60s 内存缓存)。
+
+> 兑换有 10 分钟幂等窗口:同一条链接在这段时间内重复兑换会拿到同一枚设备令牌
+> (页面刷新、弱网重试不至于把人锁在门外)。窗口之外再点就是「已用过」。
+
 ## 配置项
 
 完整键集与逐条注释在 [`.env.example`](../.env.example)。分组一览:
@@ -50,7 +76,7 @@
 | 数据库 | `DATABASE_URL`(默认 `file:./data/pr.db`)、`DATABASE_AUTH_TOKEN`(远程 libsql 才需) |
 | 管理端 | `ADMIN_PASSWORD`、`ADMIN_SESSION_SECRET`(管理 API 鉴权,无内置界面)、`SETTINGS_ENCRYPTION_KEY` |
 | AI 网关 | `ANTHROPIC_API_KEY` / `_BASE_URL` / `_MODEL` / `_VISION_MODEL`;`OPENAI_API_KEY` / `_BASE_URL` / `_MODEL` / `_API_FORMAT`(这 8 键可被 `/api/pr/settings` 运行时覆盖,库内值优先) |
-| 对话 | `PR_CHAT_TOKEN`、`PR_CHAT_MAX_TOKENS`、`PR_UPLOAD_DIR` |
+| 对话 | `PR_CHAT_MAX_TOKENS`、`PR_UPLOAD_DIR`(访问令牌不走 env,见上「拿入口链接」) |
 | 记忆 | `PR_MEMORY_DECAY_DAYS`、`PR_MEMORY_RECONCILE_APPLY` |
 | 数字分身 | `PR_PERSONA_LLM`(`off` = 只跑确定性投影)、`PR_PRESENCE_URL`(实时状态上游,留空关闭)、`LORE_INGEST_TOKEN`(pr-lore 投递令牌) |
 | 复盘 | `PR_REVIEW_MODEL`、`PR_REVIEW_PROVIDER`、`PR_RETENTION_DAYS` |

@@ -2,8 +2,8 @@
  * 运行时配置覆盖:AI 网关(url/key/model)从宿主面板可改、即时生效、免重启。
  *
  * 边界(与「配置全部来自 env」原则的妥协点,刻意收窄):
- * - **白名单硬编码**:只有 AI 网关 8 键可覆盖。鉴权类(PR_CHAT_TOKEN、ADMIN 系、
- *   HEALTH_IMPORT_TOKEN)与拓扑类(DATABASE_URL)永远只认 env——库内数据被篡改
+ * - **白名单硬编码**:只有 AI 网关 8 键可覆盖。鉴权类(ADMIN 系、HEALTH_IMPORT_TOKEN、
+ *   LORE_INGEST_TOKEN)与拓扑类(DATABASE_URL)永远只认 env——库内数据被篡改
  *   也动不了鉴权与数据面。
  * - **密文落库**(crypto.encryptValue):业务库会被快照/实时复制到对象存储,
  *   明文密钥不允许进备份链路。

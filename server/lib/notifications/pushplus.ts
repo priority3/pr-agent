@@ -6,7 +6,7 @@
  * 未配置 PUSHPLUS_TOKEN 时 getPushPlusChannel() 返回 null,派发器优雅跳过。
  *
  * 剥离(design §7):原 buildPushPlusHtml 硬编的回退域名已去除,
- * 改由 NotificationMessage.link(派发器按 PUBLIC_BASE_URL + PR_CHAT_TOKEN 构造)注入。
+ * 改由 NotificationMessage.link(派发器按 PUBLIC_BASE_URL 构造)注入。
  */
 import type { NotificationChannel, NotificationMessage, NotificationSendResult } from './types'
 

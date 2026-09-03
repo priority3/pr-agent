@@ -499,6 +499,40 @@ export const runtimeSettings = sqliteTable('runtime_settings', {
     .default(sql`(unixepoch())`),
 })
 
+/**
+ * 一次性入口链接。管理接口签发,H5 页面兑换一次即废(见 server/lib/pr/chat-access.ts)。
+ *
+ * Reason: 存 sha256(token) 而非明文 —— 业务库会被快照复制到对象存储,明文落库
+ * 等于把访问令牌一起备份出去。deviceTokenEnc 是唯一例外(幂等窗口需要能原样返回
+ * 同一枚设备令牌),用 SETTINGS_ENCRYPTION_KEY 加密,窗口过后清空。
+ */
+export const prChatInvites = sqliteTable('pr_chat_invites', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  usedAt: integer('used_at', { mode: 'timestamp' }),
+  deviceId: text('device_id'),
+  deviceTokenEnc: text('device_token_enc'),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
+/** 兑换出的设备令牌:每台设备一枚,滑动过期、可单独吊销。同样只存哈希。 */
+export const prChatDevices = sqliteTable('pr_chat_devices', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label'),
+  inviteId: text('invite_id'),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
+  revokedAt: integer('revoked_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`(unixepoch())`),
+})
+
 // 导出类型
 export type Activity = typeof activities.$inferSelect
 export type NewActivity = typeof activities.$inferInsert
@@ -574,3 +608,9 @@ export type NewPersonaState = typeof personaState.$inferInsert
 
 export type PersonaEvent = typeof personaEvents.$inferSelect
 export type NewPersonaEvent = typeof personaEvents.$inferInsert
+
+export type PrChatInvite = typeof prChatInvites.$inferSelect
+export type NewPrChatInvite = typeof prChatInvites.$inferInsert
+
+export type PrChatDevice = typeof prChatDevices.$inferSelect
+export type NewPrChatDevice = typeof prChatDevices.$inferInsert

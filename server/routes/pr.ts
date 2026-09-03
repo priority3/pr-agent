@@ -9,8 +9,6 @@
 import { Hono } from 'hono'
 
 import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
-import { getRuntimeSetting } from '@/lib/config'
-import { safeEqual } from '@/lib/crypto'
 import { missingField } from '@/lib/api-helpers'
 import { generateDailyReview } from '@/lib/pr/daily'
 import { chatWithPr, deleteConversationThread, listConversationMessages, listConversationThreads } from '@/lib/pr/chat'
@@ -170,21 +168,12 @@ pr.post('/upload', withPrChatAuth, async c => {
   return c.json({ url })
 })
 
-// 认证走查询串 token(浏览器 <img> 无法带 Authorization 头),与 PR_CHAT_TOKEN 比对。
-pr.get('/image/:name', async c => {
+// 与对话端点同一条鉴权:Authorization 头带设备令牌。
+// Reason: 原先走查询串 ?t=<PR_CHAT_TOKEN> —— <img> 标签带不了请求头,只能把令牌明文
+// 塞进 URL,于是它会落进反代与 CDN 的访问日志。前端改为 fetch + blob(见
+// client/pr/AuthImage.tsx)后,这里就能收敛到普通的 Bearer 鉴权。
+pr.get('/image/:name', withPrChatAuth, async c => {
   const name = c.req.param('name')
-  const t = c.req.query('t') ?? ''
-
-  let expected = ''
-  try {
-    expected = await getRuntimeSetting('PR_CHAT_TOKEN')
-  } catch {
-    /* token 读取失败即视为未授权 */
-  }
-  if (!expected || !safeEqual(t, expected)) {
-    return c.text('Unauthorized', 401)
-  }
-
   const img = await readImageUpload(name)
   if (!img) return c.text('Not found', 404)
 

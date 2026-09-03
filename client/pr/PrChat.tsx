@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { clearAuthImageCache } from './AuthImage'
 import Composer from './Composer'
 import { newId } from './helpers'
 import { useElementHeightVar, useStickyScroll, useVisualViewport } from './hooks'
 import { ArrowDownIcon, MenuIcon, PlusIcon } from './icons'
 import MessageList from './MessageList'
+import {
+  clearStoredToken,
+  readStoredToken,
+  redeemInvite,
+  REDEEM_MESSAGES,
+  storeToken,
+  type RedeemError,
+} from './session'
 import { PrThemeStyle } from './theme'
 import ThreadDrawer from './ThreadDrawer'
 import type { Thread } from './types'
@@ -16,7 +25,7 @@ import { useThreadHistory } from './useThreadHistory'
  * 交互参考 Shiro(innei.in):毛玻璃顶栏/输入区、弹簧曲线入场与按压反馈、抽屉滑入、
  * 两段式删除、textarea 自动长高——全部纯 CSS spring,不引第三方动画库。
  * 主题:作用域 CSS 变量(--pr-*),深色随系统自动切换(不依赖全局 shadcn 令牌)。
- * 免登录:token 由推送链接带入(?t=),存 localStorage。会话/消息都存服务端。
+ * 免登录:一次性链接(?t=)换一枚设备令牌存 localStorage(见 session.ts)。会话/消息都存服务端。
  *
  * 结构:本文件只管状态与编排;帧解析 sse.ts、气泡 MessageList、输入区 Composer、
  * 会话抽屉 ThreadDrawer、滚动/视口 hooks.ts、主题 theme.tsx。
@@ -25,6 +34,8 @@ export default function PrChatPage() {
   const [token, setToken] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
   const [authError, setAuthError] = useState(false)
+  // 兑换一次性链接失败的原因(空态里展示,区分「链接用过了」和「网络不通」)
+  const [entryError, setEntryError] = useState<RedeemError | null>(null)
   const [threads, setThreads] = useState<Thread[]>([])
   const [threadId, setThreadId] = useState<string | null>(null)
   const [input, setInput] = useState('')
@@ -48,7 +59,16 @@ export default function PrChatPage() {
   const scrollToBottomRef = useRef<(behavior?: ScrollBehavior) => void>(() => {})
 
   const authHeader = (): HeadersInit => ({ Authorization: `Bearer ${token ?? ''}` })
-  const imgSrc = (url: string) => `${url}${url.includes('?') ? '&' : '?'}t=${encodeURIComponent(token ?? '')}`
+
+  /**
+   * 令牌失效(401)。除了置错误态,还要把废令牌从 localStorage 抹掉 ——
+   * 原先不抹,下次进页面会拿着同一枚废令牌一路 401 到底,看起来像「服务挂了」。
+   */
+  function onAuthError() {
+    setAuthError(true)
+    clearStoredToken()
+    clearAuthImageCache()
+  }
 
   // 历史列表 + 载入三态 + 「等回复」补拉(见 useThreadHistory)
   const {
@@ -58,7 +78,7 @@ export default function PrChatPage() {
     authHeader,
     genRef,
     sendingRef,
-    setAuthError,
+    setAuthError: onAuthError,
     onLoaded: () => scrollToBottomRef.current('auto'),
   })
 
@@ -70,20 +90,46 @@ export default function PrChatPage() {
     scrollToBottomRef.current = scrollToBottom
   }, [scrollToBottom])
 
-  // token 初始化(mount 后读浏览器 API)
+  // 令牌初始化(mount 后读浏览器 API):本地令牌优先,否则拿 URL 上的一次性 t 去兑换
   useEffect(() => {
-    const url = new URL(window.location.href)
-    const t = url.searchParams.get('t')
-    if (t) {
-      localStorage.setItem('pr_chat_token', t)
+    let alive = true
+
+    void (async () => {
+      const stored = readStoredToken()
+      if (stored) {
+        if (alive) {
+          setToken(stored)
+          setReady(true)
+        }
+        return
+      }
+
+      const url = new URL(window.location.href)
+      const t = url.searchParams.get('t')
+      if (!t) {
+        if (alive) setReady(true)
+        return
+      }
+
+      const outcome = await redeemInvite(t)
+      if (!alive) return
+
+      if (outcome.ok) {
+        storeToken(outcome.token)
+        setToken(outcome.token)
+      } else {
+        setEntryError(outcome.reason)
+      }
+      setReady(true)
+
+      // 无论成败都把 t 从地址栏抹掉:成功了它已作废,失败了留着也只会误导人刷新重试。
       url.searchParams.delete('t')
       window.history.replaceState({}, '', url.pathname + url.search)
+    })()
+
+    return () => {
+      alive = false
     }
-    const nextToken = t || localStorage.getItem('pr_chat_token')
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setToken(nextToken)
-    setReady(true)
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
   useEffect(() => () => {
@@ -131,7 +177,7 @@ export default function PrChatPage() {
   async function fetchThreads(): Promise<Thread[] | null> {
     try {
       const r = await fetch('/api/pr/threads', { headers: authHeader(), cache: 'no-store' })
-      if (r.status === 401) { setAuthError(true); return null }
+      if (r.status === 401) { onAuthError(); return null }
       if (!r.ok) return null
       const j = await r.json()
       const list: Thread[] = j.threads ?? []
@@ -187,7 +233,7 @@ export default function PrChatPage() {
     let ok = false
     try {
       const r = await fetch(`/api/pr/threads?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: authHeader() })
-      if (r.status === 401) { setAuthError(true); return }
+      if (r.status === 401) { onAuthError(); return }
       ok = r.ok
     } catch {
       ok = false
@@ -238,7 +284,7 @@ export default function PrChatPage() {
     abortRef,
     setMessages,
     setSending: markSending,
-    setAuthError,
+    setAuthError: onAuthError,
     onThreadCreated: id => {
       selfSetThreadRef.current = id
       setThreadId(id)
@@ -286,8 +332,12 @@ export default function PrChatPage() {
           <div className="pr-breath mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
             <img src="/pr-logo.png" alt="RunPaceFlow" className="h-10 w-10" />
           </div>
-          <p className="pr-rise text-sm" style={{ color: 'var(--pr-text)' }}>请从每日推送里的「打开 PR 对话」链接进入。</p>
-          <p className="pr-rise mt-1.5 text-xs" style={{ color: 'var(--pr-muted)', animationDelay: '80ms' }}>(缺少访问令牌)</p>
+          <p className="pr-rise text-sm" style={{ color: 'var(--pr-text)' }}>
+            {entryError ? REDEEM_MESSAGES[entryError] : '请用管理端生成的一次性链接进入。'}
+          </p>
+          <p className="pr-rise mt-1.5 text-xs" style={{ color: 'var(--pr-muted)', animationDelay: '80ms' }}>
+            {entryError ? '(链接一次有效)' : '(缺少访问令牌)'}
+          </p>
         </div>
       </div>
     )
@@ -360,7 +410,7 @@ export default function PrChatPage() {
           // 不该触发重挂,否则整屏消息会在流式结束那一刻重新动一遍
           threadKey={String(genRef.current)}
           replyWait={replyWait}
-          imgSrc={imgSrc}
+          token={token}
           onToggleThinking={toggleThinking}
           onRetry={retry}
           onReloadHistory={() => { if (threadId) void loadMessages(threadId) }}
@@ -397,7 +447,7 @@ export default function PrChatPage() {
         pendingImageUrl={pendingImageUrl}
         onClearImage={() => setPendingImageUrl(null)}
         onPickFile={file => void uploadFile(file)}
-        imgSrc={imgSrc}
+        token={token}
       />
     </div>
   )

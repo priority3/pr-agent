@@ -5,6 +5,9 @@
  * 差异:读会话从 next/headers cookies() 改为 Hono 请求 Cookie 头;token 源从 admin
  * app_settings 改为 env(getRuntimeSetting)。鉴权失败 → 401;处理器抛错 → 交由
  * app.onError 统一 500(与原仓每处理器 try/catch 的 500 行为等价)。
+ *
+ * 其后 H5 对话那条通路又从「共享 env token」换成了库里的设备令牌(withPrChatAuth,
+ * 见 lib/pr/chat-access.ts);其余通路仍是 env 里的共享 token。
  */
 import type { Context, MiddlewareHandler } from 'hono'
 import { getCookie } from 'hono/cookie'
@@ -12,6 +15,7 @@ import { getCookie } from 'hono/cookie'
 import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/auth'
 import { getRuntimeSetting } from '@/lib/config'
 import { safeEqual } from '@/lib/crypto'
+import { touchChatDevice, verifyChatDeviceToken } from '@/lib/pr/chat-access'
 
 /** 从 Authorization 头提取 Bearer token;缺失/畸形返回 null。 */
 function extractBearerToken(headerValue: string | null): string | null {
@@ -50,8 +54,34 @@ function tokenOrSessionAuth(settingKey: string, logTag: string): MiddlewareHandl
   }
 }
 
-/** H5 对话:admin 会话 或 Bearer PR_CHAT_TOKEN。 */
-export const withPrChatAuth = tokenOrSessionAuth('PR_CHAT_TOKEN', 'pr-chat')
+/**
+ * H5 对话:admin 会话 或 Bearer <设备令牌>。
+ *
+ * 设备令牌由一次性入口链接兑换而来(见 lib/pr/chat-access.ts),每台设备一枚、
+ * 90 天滑动过期、可单独吊销 —— 取代了原先那枚永不过期又无法吊销的共享
+ * PR_CHAT_TOKEN。admin 会话通路保留:宿主面板与 curl 调试仍走它。
+ */
+export const withPrChatAuth: MiddlewareHandler = async (c, next) => {
+  const providedToken = extractBearerToken(c.req.header('authorization') ?? null)
+
+  if (providedToken) {
+    let deviceId: string | null = null
+    try {
+      deviceId = await verifyChatDeviceToken(providedToken)
+    } catch (error) {
+      console.warn('[pr-chat] 设备令牌校验失败:', (error as Error).message)
+    }
+    if (deviceId) {
+      // 续期是记账,不该拖慢请求也不该让它失败(内部已 catch + 节流)。
+      void touchChatDevice(deviceId)
+      await next()
+      return
+    }
+  }
+
+  if (!isAuthenticated(c)) return c.json({ error: 'Unauthorized' }, 401)
+  await next()
+}
 
 /** 健康数据上报:admin 会话 或 Bearer HEALTH_IMPORT_TOKEN。 */
 export const withHealthImportAuth = tokenOrSessionAuth('HEALTH_IMPORT_TOKEN', 'health-import')

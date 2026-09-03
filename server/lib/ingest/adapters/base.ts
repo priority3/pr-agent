@@ -1,56 +1,9 @@
 /**
- * 数据同步适配器基础接口
- * 用于统一不同数据源（Keep, Strava 等）的数据格式
+ * 活动数据的统一入参形状。
+ *
+ * 直采 Keep/Strava 的适配器已移除 —— 那是 runPaceFlow-admin 的职责(它写 activities,
+ * 本进程读同一个库)。本文件现在只定义「一条活动长什么样」,供通用导入端点与处理器共用。
  */
-export interface SyncAdapter {
-  /** 适配器名称 */
-  name: string
-
-  /**
-   * 认证
-   * @param credentials 认证凭证
-   * @returns 认证是否成功
-   */
-  authenticate: (credentials: Record<string, any>) => Promise<boolean>
-
-  /**
-   * 获取活动列表
-   * @param options 查询选项
-   * @returns 原始活动数据列表
-   */
-  getActivities: (options?: {
-    startDate?: Date
-    endDate?: Date
-    /** Unix timestamp - only fetch activities after this time (for incremental sync) */
-    after?: number
-    limit?: number
-    /**
-     * 拉取单条活动详情前的去重判断回调。返回 false 则跳过该活动(不发详情/streams 请求)。
-     * 用于增量同步省请求:库里已存在的活动直接跳过。
-     */
-    shouldFetchDetail?: (sourceId: string) => boolean | Promise<boolean>
-  }) => Promise<RawActivity[]>
-
-  /**
-   * 获取单个活动详情（包含 GPX 数据）
-   * @param id 活动 ID
-   * @returns 原始活动数据
-   */
-  getActivityDetail: (id: string) => Promise<RawActivity>
-
-  /**
-   * 下载 GPX 文件
-   * @param activityId 活动 ID
-   * @returns GPX XML 字符串
-   */
-  downloadGPX: (activityId: string) => Promise<string>
-
-  /**
-   * 健康检查
-   * @returns 服务是否可用
-   */
-  healthCheck: () => Promise<boolean>
-}
 
 /**
  * 原始活动数据（统一格式）

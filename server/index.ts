@@ -4,6 +4,7 @@ import { serveStatic } from 'hono/bun'
 import { ensureDatabaseReady } from '@/bootstrap'
 import { startScheduler } from '@/lib/scheduler'
 import activitiesRoutes from '@/routes/activities'
+import jobsRoutes from '@/routes/jobs'
 import activityFeedbackRoutes from '@/routes/activity-feedback'
 import authRoutes from '@/routes/auth'
 import healthRoutes from '@/routes/health'
@@ -32,6 +33,7 @@ app.route('/api/pr/race-goals', raceGoalsRoutes)
 app.route('/api/pr/life-events', lifeEventsRoutes)
 app.route('/api/pr/activity-feedback', activityFeedbackRoutes)
 app.route('/api/pr/settings', settingsRoutes)
+app.route('/api/pr/jobs', jobsRoutes)
 app.route('/api/pr', prRoutes)
 app.route('/api/health', healthRoutes)
 app.route('/api/activities', activitiesRoutes)

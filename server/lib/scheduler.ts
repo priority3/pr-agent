@@ -12,6 +12,15 @@
  */
 import cron from 'node-cron'
 
+import {
+  loadOverrides,
+  nextRunAt,
+  recordJobRun,
+  resolveCron,
+  schedulerTimezone,
+  type JobOverride,
+} from './scheduler-store'
+
 import { dispatchPendingNotifications } from './notifications/dispatcher'
 import { generateDailyReview } from './pr/daily'
 import { generateFriendDiary } from './pr/diary'
@@ -134,15 +143,16 @@ async function jobPersonaProjection() {
 
 // ─── 静态 job 配置 ──────────────────────────────────────────────────────────
 
-interface JobDef {
+export interface JobDef {
   id: string
   name: string
   cron: string
   handler: () => Promise<void>
 }
 
-// 单用户静态配置(替代源仓 admin.db 的 scheduler_jobs 表)。cron 可被 CRON_<ID> env 覆盖。
-const DEFAULT_JOBS: JobDef[] = [
+// job 清单以代码为准(id/显示名/默认 cron/handler)。用户改过的 cron 与开关存 scheduler_jobs 表,
+// 优先级 DB > CRON_<ID> env > 这里的默认值;见 scheduler-store.ts。
+export const DEFAULT_JOBS: JobDef[] = [
   // 事件驱动(健康上报触发)为主;此处是缺失时的正午幂等兜底。
   { id: 'pr_daily_review', name: 'PR 每日反思(兜底)', cron: '0 12 * * *', handler: jobPrDailyReview },
   { id: 'weekly_review', name: 'PR 周总结', cron: '0 20 * * 0', handler: jobWeeklyReview },
@@ -156,14 +166,6 @@ const DEFAULT_JOBS: JobDef[] = [
   { id: 'retention_cleanup', name: '数据保留清理', cron: '0 3 * * 0', handler: jobRetentionCleanup },
 ]
 
-/** cron 表达式:优先取 CRON_<ID> env(校验通过才用),否则用静态默认。 */
-function resolveCron(id: string, fallback: string): string {
-  const override = process.env[`CRON_${id.toUpperCase()}`]
-  if (override && cron.validate(override)) return override
-  if (override) console.warn(`[Scheduler] 忽略非法 cron 覆盖 CRON_${id.toUpperCase()}=${override}`)
-  return fallback
-}
-
 /**
  * 调度总开关。默认开启(独立自部署时后台任务必须自己跑)。
  *
@@ -176,19 +178,52 @@ function isSchedulerDisabled(): boolean {
   return ['off', 'false', '0'].includes(flag)
 }
 
-function setupJobs() {
+/**
+ * 给 handler 包一层记账:落一条执行历史(耗时 / 成败 / 简讯),让面板能看到
+ * 「上次执行」与最近若干次结果。handler 自身抛错不再逃逸到 node-cron
+ * (它会吞掉并只打印),而是被记成一条失败记录。
+ */
+function withRunRecording(job: JobDef): () => Promise<void> {
+  return async () => {
+    const startedAt = Math.floor(Date.now() / 1000)
+    const t0 = Date.now()
+    try {
+      await job.handler()
+      await recordJobRun(job.id, { startedAt, durationMs: Date.now() - t0, ok: true, message: 'ok' })
+    } catch (err) {
+      const message = (err as Error).message || String(err)
+      console.warn(`[Scheduler] ${job.id} failed: ${message}`)
+      await recordJobRun(job.id, { startedAt, durationMs: Date.now() - t0, ok: false, message })
+    }
+  }
+}
+
+async function setupJobs() {
   for (const task of scheduledTasks) task.stop()
   scheduledTasks = []
 
-  const jobs: JobDef[] = [...DEFAULT_JOBS]
+  const overrides = await loadOverrides()
+  const tz = schedulerTimezone()
 
-  for (const job of jobs) {
-    const expr = resolveCron(job.id, job.cron)
-    const task = cron.schedule(expr, job.handler)
+  for (const job of DEFAULT_JOBS) {
+    const override: JobOverride | undefined = overrides.get(job.id)
+    if (override && !override.enabled) {
+      console.log(`[Scheduler] Skipped "${job.name}" (已在面板关闭)`)
+      continue
+    }
+    const { expression, source } = resolveCron(job.id, job.cron, override)
+    // Reason: 显式传 timezone。不传的话 node-cron 用进程本地时区,而容器里 TZ 常常没设
+    // (= UTC),于是「0 21 * * *」实际在北京时间凌晨 5 点触发。
+    const task = cron.schedule(expression, withRunRecording(job), { timezone: tz })
     scheduledTasks.push(task)
-    console.log(`[Scheduler] Registered "${job.name}" with cron: ${expr}`)
+    const next = nextRunAt(expression)
+    console.log(
+      `[Scheduler] Registered "${job.name}" cron: ${expression} (${source}, tz=${tz})` +
+        (next ? ` next=${new Date(next * 1000).toISOString()}` : ''),
+    )
   }
 }
+
 
 export async function startScheduler() {
   if (schedulerStarted) return
@@ -212,17 +247,17 @@ export async function startScheduler() {
     return
   }
 
-  setupJobs()
-  console.log('[Scheduler] Started - static single-user job config')
+  await setupJobs()
+  console.log(`[Scheduler] Started - ${DEFAULT_JOBS.length} jobs, tz=${schedulerTimezone()}`)
 }
 
-/** 重载调度(env 改动后可调;单用户场景一般无需)。 */
-export function reloadScheduler() {
+/** 重载调度。改完 cron/开关后调它即可生效,免重启。 */
+export async function reloadScheduler() {
   if (isSchedulerDisabled()) {
     console.log('[Scheduler] PR_SCHEDULER=off - 跳过重载')
     return
   }
 
-  setupJobs()
+  await setupJobs()
   console.log('[Scheduler] Reloaded')
 }

@@ -2,11 +2,22 @@ name: deploy
 
 # main 有推送 → 自动部署到服务器。
 #
-# 机制:GitHub 托管 runner 把仓库内容 rsync 到服务器部署目录,再就地
-# `docker compose up -d --build`(两边 compose 都是 build: .,镜像在服务器上现场构建)。
+# 机制:GitHub runner 构建镜像并推到 GHCR,服务器只负责 `docker compose pull` + 重启。
 #
-# 为什么用 rsync 而不是在服务器上 git pull:服务器的 /root/pr-agent 不是 git 仓库
-# (只有源码副本 + .env + data/),rsync 不要求那边有 git,也不用给服务器配 GitHub 凭据。
+# 为什么不在服务器上现场构建(2026-09-07 改,与 runPaceFlow-admin 同步):服务器拉 npm
+# 单个包是好的(实测 0.6s/200),但几百个包并发下载会被掐断,构建时好时坏。拉镜像是少量
+# 大层的顺序下载,正好避开这个毛病;构建挪到 runner 后用的是 GitHub 的网络。
+#
+# 更要紧的是可见性:此前部署步骤是 `docker compose up -d --build 2>&1 | tail -20`,
+# shell 取的是管道最后一个命令(tail)的退出码 —— 构建失败 workflow 照样显示 success。
+# admin 那边就因此静默漏上线过一次(源码 rsync 到了、镜像没建出来、容器继续跑旧的)。
+# 所有 run 块补 set -euo pipefail。
+#
+# 服务器不持有任何长期 registry 凭据:用本次 job 的 GITHUB_TOKEN 临时登录,拉完立刻
+# logout,token 随 job 结束失效。
+#
+# 为什么仍然 rsync:服务器的 /root/pr-agent 不是 git 仓库(只有源码副本 + .env + data/),
+# compose 挂载的 ./data 与备份脚本都在那个目录下,保持同步便于排查。它不再是构建来源。
 on:
   push:
     branches: [main]
@@ -14,7 +25,10 @@ on:
 
 concurrency:
   group: deploy-pr-agent
-  cancel-in-progress: false # 部署不可中断:半路取消会留下构建到一半的容器
+  cancel-in-progress: false # 部署不可中断:半路取消会留下拉到一半的镜像
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   # 先复用 checks 的内容:构建不过的东西不该上线。
@@ -24,8 +38,34 @@ jobs:
   deploy:
     needs: checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # 推镜像到 GHCR
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 镜像名必须全小写(GHCR 规则);本仓名字本就是小写,这步是为将来改名兜底。
+      - name: 规范化镜像名
+        run: echo "IMAGE=$(echo '${{ env.IMAGE }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: 构建并推送镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.sha }}
+          # GitHub Actions 缓存:未变的层不重建,后续部署只推应用代码那一层。
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: 准备 SSH
         env:
@@ -33,6 +73,7 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           # 末尾换行不能少:OpenSSH 私钥缺 trailing newline 会报 error in libcrypto
           printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
@@ -43,12 +84,13 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # --delete 清掉服务器上已从仓库删除的文件(拆分收尾删了很多,不清会留僵尸)。
-        # 排除项是「服务器独有、仓库不该覆盖」的东西:
+        # 不再是构建来源(镜像在 runner 上建),但服务器目录下的辅助文件仍需保持最新。
+        # --delete 清掉服务器上已从仓库删除的文件。排除项是「服务器独有、仓库不该覆盖」的:
         #   .env            —— 密钥与部署参数,只存在于服务器
-        #   docker-compose.yml —— 服务器版挂了 rpf_shared_data 外部卷等本地拓扑,与仓库示例不同
-        #   data/           —— 运行数据(上传的图片等)
+        #   docker-compose.yml —— 服务器版挂了 rpf_shared_data 外部卷等本地拓扑
+        #   data/           —— 运行数据(pr.db、上传的图片等)
         run: |
+          set -euo pipefail
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy -p $PORT -o BatchMode=yes" \
             --exclude '.git' \
@@ -58,14 +100,30 @@ jobs:
             --exclude 'node_modules' \
             ./ "$USER@$HOST:/root/pr-agent/"
 
-      - name: 重建并启动
+      - name: 拉取镜像并启动
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # heredoc 刻意**不加引号**:让 token 在 runner 这边展开进 stdin 流,而不是作为
+        # ssh 的命令行参数 —— 后者会短暂出现在服务器的 ps 里。脚本内没有其他 $ 变量,
+        # 所以本地展开不会误伤(新增变量时务必转义)。
+        #
+        # 只动 app 服务:同机上的 pr-litestream 不属于本 compose(手动起的),别碰它。
         run: |
-          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
-            'cd /root/pr-agent && docker compose up -d --build 2>&1 | tail -20'
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<REMOTE
+          set -euo pipefail
+          cd /root/pr-agent
+          echo '$REGISTRY_TOKEN' | docker login ghcr.io -u '$REGISTRY_USER' --password-stdin
+          # 无论后续成败都登出:服务器不该留下任何 registry 凭据
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          docker compose pull app
+          docker compose up -d app
+          docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
+          REMOTE
 
       - name: 部署后探活
         env:
@@ -75,6 +133,7 @@ jobs:
         # 容器起来 ≠ 服务可用。除 /api/health 外再验一个管理端点必须回 401 ——
         # 回 404 说明路由没挂上(见 checks.yml 的同款判断)。
         run: |
+          set -euo pipefail
           ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           for i in $(seq 1 30); do
             sleep 2

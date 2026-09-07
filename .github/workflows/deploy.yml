@@ -2,11 +2,22 @@ name: deploy
 
 # main 有推送 → 自动部署到服务器。
 #
-# 机制:GitHub 托管 runner 把仓库内容 rsync 到服务器部署目录,再就地
-# `docker compose up -d --build`(两边 compose 都是 build: .,镜像在服务器上现场构建)。
+# 机制:GitHub runner 构建镜像,经 ssh 管道直传到服务器 `docker load`,再重启容器。
 #
-# 为什么用 rsync 而不是在服务器上 git pull:服务器的 /root/pr-agent 不是 git 仓库
-# (只有源码副本 + .env + data/),rsync 不要求那边有 git,也不用给服务器配 GitHub 凭据。
+# 为什么不在服务器上现场构建(2026-09-07 改):服务器拉 npm 单个包是好的(实测 0.6s/200),
+# 但几百个包并发下载会被掐断,构建时好时坏。构建挪到 runner 后用的是 GitHub 的网络。
+#
+# 为什么不用 registry:先试过 GHCR,这台服务器拉不动 —— docker pull 401MB 镜像时 30 秒
+# 内存储增长 0 MB,进程挂着却没有任何数据流入。而 ssh 这条链路一直是好的(rsync、所有
+# 远程诊断都走它),所以改由它驮镜像。代价是每次传全量(没有层复用),换来的是确定性。
+#
+# 更要紧的是可见性:此前部署步骤是 `docker compose up -d --build 2>&1 | tail -20`,
+# shell 取的是管道最后一个命令(tail)的退出码 —— 构建失败 workflow 照样显示 success。
+# admin 那边就因此静默漏上线过一次(源码 rsync 到了、镜像没建出来、容器继续跑旧的)。
+# 所有 run 块补 set -euo pipefail。
+#
+# 为什么仍然 rsync:服务器的 /root/pr-agent 不是 git 仓库(只有源码副本 + .env + data/),
+# compose 挂载的 ./data 与备份脚本都在那个目录下,保持同步便于排查。它不再是构建来源。
 on:
   push:
     branches: [main]
@@ -14,7 +25,11 @@ on:
 
 concurrency:
   group: deploy-pr-agent
-  cancel-in-progress: false # 部署不可中断:半路取消会留下构建到一半的容器
+  cancel-in-progress: false # 部署不可中断:半路取消会留下传到一半的镜像
+
+env:
+  # 本地 tag(不进任何 registry);服务器 compose 用同名引用 + pull_policy: never。
+  IMAGE: pr-agent:latest
 
 jobs:
   # 先复用 checks 的内容:构建不过的东西不该上线。
@@ -24,8 +39,23 @@ jobs:
   deploy:
     needs: checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 构建镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true # 装进 runner 本地 daemon,下一步 docker save 导出
+          tags: ${{ env.IMAGE }}
+          # GitHub Actions 缓存:未变的层不重建。
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: 准备 SSH
         env:
@@ -33,6 +63,7 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           # 末尾换行不能少:OpenSSH 私钥缺 trailing newline 会报 error in libcrypto
           printf '%s\n' "$KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
@@ -43,12 +74,13 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # --delete 清掉服务器上已从仓库删除的文件(拆分收尾删了很多,不清会留僵尸)。
-        # 排除项是「服务器独有、仓库不该覆盖」的东西:
+        # 不再是构建来源(镜像在 runner 上建),但服务器目录下的辅助文件仍需保持最新。
+        # --delete 清掉服务器上已从仓库删除的文件。排除项是「服务器独有、仓库不该覆盖」的:
         #   .env            —— 密钥与部署参数,只存在于服务器
-        #   docker-compose.yml —— 服务器版挂了 rpf_shared_data 外部卷等本地拓扑,与仓库示例不同
-        #   data/           —— 运行数据(上传的图片等)
+        #   docker-compose.yml —— 服务器版挂了 rpf_shared_data 外部卷等本地拓扑
+        #   data/           —— 运行数据(pr.db、上传的图片等)
         run: |
+          set -euo pipefail
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy -p $PORT -o BatchMode=yes" \
             --exclude '.git' \
@@ -58,14 +90,40 @@ jobs:
             --exclude 'node_modules' \
             ./ "$USER@$HOST:/root/pr-agent/"
 
-      - name: 重建并启动
+      - name: 传输镜像到服务器
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
+        # 镜像经 ssh 管道直传,不落盘、不经过任何 registry。
+        #
+        # Reason: 本想用 GHCR,但这台服务器拉不动 —— docker pull 401MB 的镜像时
+        # 30 秒内存储增长 0 MB,进程挂着却没有任何数据流入(层存储在
+        # pkg-containers.githubusercontent.com)。而 ssh 这条链路一直是好的:rsync、
+        # 所有远程诊断都走它。所以改由它驮镜像。
+        #
+        # gzip -1:docker save 导出的是未压缩层,node_modules 这类文本压缩比很高;
+        # 用最低档是因为瓶颈在带宽不在 CPU,-1 与 -9 的体积差远小于耗时差。
         run: |
-          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
-            'cd /root/pr-agent && docker compose up -d --build 2>&1 | tail -20'
+          set -euo pipefail
+          docker save "$IMAGE" | gzip -1 | \
+            ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
+              'gunzip | docker load'
+
+      - name: 启动
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        # 只动 app 服务:同机上的 pr-litestream 不属于本 compose(手动起的),别碰它。
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /root/pr-agent
+          docker compose up -d app
+          docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
+          REMOTE
 
       - name: 部署后探活
         env:
@@ -75,6 +133,7 @@ jobs:
         # 容器起来 ≠ 服务可用。除 /api/health 外再验一个管理端点必须回 401 ——
         # 回 404 说明路由没挂上(见 checks.yml 的同款判断)。
         run: |
+          set -euo pipefail
           ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
           for i in $(seq 1 30); do
             sleep 2

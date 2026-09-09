@@ -42,6 +42,7 @@ export async function curateChatMemoryInBackground(
   userMessageId: string,
   message: string,
   history: Array<{ role: string; content: string }>,
+  createdAt?: string,
 ) {
   return withSpan('pr.curate_memory', 'CHAIN', { 'pr.run_id': runId, [OI.INPUT]: clip(message, 1000) }, async span => {
     const context = history.length
@@ -52,6 +53,7 @@ export async function curateChatMemoryInBackground(
       refId: userMessageId,
       text: message,
       context,
+      createdAt,
     })
     const learnedMemoryIds: string[] = []
     for (const [index, patch] of patches.entries()) {

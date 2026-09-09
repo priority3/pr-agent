@@ -42,6 +42,13 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
       .limit(1)
 
     if (existing.length > 0) {
+      // 同一条活动后续补到赛事名时，更新元数据；否则首次同步时缺字段会永久让比赛记录不可检索。
+      if (rawActivity.raceName?.trim()) {
+        await db
+          .update(activities)
+          .set({ raceName: rawActivity.raceName.trim(), title: rawActivity.raceName.trim(), updatedAt: new Date() })
+          .where(eq(activities.id, existing[0].id))
+      }
       console.info(`Activity ${rawActivity.id} already exists, skipping...`)
       return existing[0].id
     }
@@ -67,7 +74,8 @@ export async function syncActivity(rawActivity: RawActivity): Promise<string> {
     // 匹配跑步赛事名称(半马以上距离)。
     // Reason: 赛事匹配依赖 Playwright 抓 zuicool.com,standalone 未移植;ENRICH_RACE_MATCH
     //         默认关 → 恒为 no-op(raceName 保持 null);即便置开也只 warn(无匹配器可用)。
-    const raceName: string | null = null
+    // 同步源明确提供的赛事名优先保留；没有显式名称时不把长距离误记成比赛。
+    const raceName: string | null = rawActivity.raceName?.trim() || null
     if (enrichEnabled('ENRICH_RACE_MATCH') && rawActivity.type === 'running' && distance >= 20500) {
       console.warn(
         `[ingest] ENRICH_RACE_MATCH 已开,但 standalone 未打包赛事匹配器(依赖 Playwright),跳过活动 ${rawActivity.id} 的赛事匹配`,

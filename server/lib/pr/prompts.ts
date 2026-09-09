@@ -392,7 +392,8 @@ export function buildMemoryCurationSystemPrompt() {
 - 泛泛闲聊、寒暄、对 PR 的即时回应
 
 蒸馏要求:
-- content:用简洁的第三人称陈述句概括(如「用户倾向晚上跑步」),不要照抄原话,不带疑问、不带当天日期或当下状态词。
+- content:用简洁的第三人称陈述句概括(如「用户倾向晚上跑步」),不要照抄原话,不带疑问或当下状态词；比赛目标例外，保留明确赛事日期/地点/距离。
+- 用户一次提到多场比赛或多个目标时，分别输出独立的 goal 记忆；保留用户明确给出的赛事名称、日期、地点和距离，不要合并成含糊的「准备参加比赛」。
 - durable:仅当这是能跨天复用的持久事实才 true;拿不准就 false(宁可不记)。
 - confidence:用户明确直接说出=0.7~0.9;需要推断=0.4~0.6。
 - type:从上面枚举里选一个最贴切的。
@@ -400,9 +401,11 @@ export function buildMemoryCurationSystemPrompt() {
 严格只输出 JSON:{"memories":[{"type":"...","content":"...","durable":true,"confidence":0.8,"reason":"..."}]}。没有值得记的就输出 {"memories":[]}。不要输出 JSON 以外的任何字符。`
 }
 
-export function buildMemoryCurationUserPrompt(text: string, source: string, context?: string | null) {
+export function buildMemoryCurationUserPrompt(text: string, source: string, context?: string | null, createdAt?: string) {
   const bg = context && context.trim() ? `最近对话/背景:\n${context.trim()}\n\n` : ''
   return `${bg}来源:${source}
+消息发送时间:${createdAt ?? new Date().toISOString()} (相对日期按 Asia/Shanghai 解析)
+${source === 'conversation_message' ? '具体赛事的参赛计划由专用流程保存为结构化目标和文字记忆，本次不要重复蒸馏具体赛事计划。普通训练目标和偏好仍可提取。' : ''}
 用户文字:
 """
 ${text}

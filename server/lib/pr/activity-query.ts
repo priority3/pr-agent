@@ -5,7 +5,7 @@
  * 摘要列在原 6 列外补了 weatherData / elevationGain / 路线起点:库里早就有每次活动
  * 回填的实测天气与爬升,但此前被裁掉 → PR 复盘「20 号那次徒步」时只能拿今天天气顶替。
  */
-import { and, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, lt, sql, type SQL } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/client'
 import { activities } from '@/lib/db/schema'
@@ -24,6 +24,8 @@ export interface RecentActivityContext {
   elevationGainM?: number | null
   /** 路线起点坐标(供 startPlace 相对位置计算;无轨迹 → null)。 */
   startLatLng?: { lat: number; lng: number } | null
+  /** 同步源明确标记的赛事名称。 */
+  raceName: string | null
 }
 
 /** 秒/公里 → 5'29" 文本。先四舍五入到整秒再拆分,避免独立取整出现 5'60"。 */
@@ -46,6 +48,7 @@ type ActivitySummaryRow = {
   weatherData: string | null
   elevationGain: number | null
   routeHead: string | null
+  raceName: string | null
 }
 
 const ACTIVITY_SUMMARY_COLUMNS = {
@@ -60,6 +63,7 @@ const ACTIVITY_SUMMARY_COLUMNS = {
   // Reason: routeCoordinates 是整条降采样路线的 JSON,整列取回太重;起点必在开头,
   // substr 前 64 字符足够正则出第一对 [lat,lng](同 environment.ts 的起点截取技巧)。
   routeHead: sql<string | null>`substr(${activities.routeCoordinates}, 1, 64)`,
+  raceName: activities.raceName,
 }
 
 /** 回填天气 JSON({ temperature, description, ... })→ 精简对象;坏数据一律 null,不抛。 */
@@ -106,30 +110,36 @@ function mapActivityRow(row: ActivitySummaryRow, fmt: Intl.DateTimeFormat, today
     elevationGainM:
       row.elevationGain != null && Number.isFinite(row.elevationGain) ? Math.round(row.elevationGain) : null,
     startLatLng: parseStartLatLng(row.routeHead),
+    raceName: row.raceName?.trim() || null,
   }
 }
 
 /**
  * 通用运动记录查询——也是对话 agent `query_activities` 工具的执行体,
- * 模型可按类型过滤、用 before 往更早翻页、用 date 精确复盘某一天。
+ * 模型可按类型/赛事过滤、用 after + before 查时间段、用 date 精确复盘某一天。
  * 日期按 Asia/Shanghai(与健康数据同键)。
  */
 export async function queryActivityContext(
-  input: { type?: string; before?: string; date?: string; limit?: number } = {},
+  input: { type?: string; before?: string; after?: string; date?: string; raceOnly?: boolean; limit?: number } = {},
 ): Promise<RecentActivityContext[]> {
   const db = await getActivitiesDb()
-  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 5), 1), 20)
+  // 时间段汇总(例如整月)可能超过最近 20 条；工具仍设上限，避免模型一次拉取无界数据。
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 5), 1), 100)
   const conditions: SQL[] = []
   if (input.type) conditions.push(eq(activities.type, input.type))
   if (input.before && /^\d{4}-\d{2}-\d{2}$/.test(input.before)) {
     // before 语义:该日期(上海时区)当天 00:00 之前,配合返回里的 date 字段即可持续往前翻
     conditions.push(lt(activities.startTime, new Date(Date.parse(`${input.before}T00:00:00+08:00`))))
   }
+  if (input.after && /^\d{4}-\d{2}-\d{2}$/.test(input.after)) {
+    conditions.push(gte(activities.startTime, new Date(Date.parse(`${input.after}T00:00:00+08:00`))))
+  }
   if (input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
     // date 语义:该日期(上海时区)当天 [00:00, 24:00) —— 「复盘某天的活动」精确过滤,与 before 同套日期口径
     const dayStart = new Date(Date.parse(`${input.date}T00:00:00+08:00`))
     conditions.push(gte(activities.startTime, dayStart), lt(activities.startTime, new Date(dayStart.getTime() + 86_400_000)))
   }
+  if (input.raceOnly) conditions.push(isNotNull(activities.raceName))
   const rows = await db
     .select(ACTIVITY_SUMMARY_COLUMNS)
     .from(activities)

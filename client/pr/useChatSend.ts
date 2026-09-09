@@ -71,7 +71,9 @@ export function useChatSend(deps: Deps) {
     // 流式渲染:首个 SSE 事件到达时才追加 assistant 消息(此前显示三点 loading),
     // 之后所有 delta 都按 id 精确更新那条消息。
     let assistantId: string | null = null
-    let thinkStart = 0
+    // 从请求发出时开始计时，而不是等首个 thinking 事件到达。
+    // 网关建立连接、排队和首个 token 之前的等待也属于用户实际看到的思考时间。
+    const thinkStart = Date.now()
     // 本次回复应该落在哪条消息上 / 属于哪个会话:收尾时用来判断「气泡是否空了」并自愈重拉
     let replyId: string | null = null
     let replyThreadId = threadId
@@ -83,7 +85,6 @@ export function useChatSend(deps: Deps) {
       const id = newId()
       assistantId = id
       replyId = id
-      thinkStart = Date.now()
       commit(ms => [...ms, { id, role: 'assistant', content: '', thinking: '', streaming: true }])
     }
     const patchAssistant = (patch: (m: Msg) => Msg) => {
@@ -180,10 +181,12 @@ export function useChatSend(deps: Deps) {
         } else if (event === 'tool') {
           ensureAssistant()
           // 同步比查询慢一个量级(要打外部 API),沿用「查数据中」会让人以为卡住了。
-          const note = data.name === 'sync_activities' ? '同步数据中…' : '查数据中…'
+          const note = data.name === 'sync_activities' ? '同步数据中…'
+            : data.name === 'extract_race_plans' ? '整理赛事计划中…'
+              : data.name === 'query_race_details' ? '查证赛事资料中…' : '查数据中…'
           patchAssistant(m => ({ ...m, toolNote: note }))
         } else if (event === 'text_reset') {
-          patchAssistant(m => ({ ...m, content: '' }))
+          patchAssistant(m => ({ ...m, content: '', thinkingSeconds: undefined }))
         } else if (event === 'replace') {
           // 整段替换(评审改写/兜底):没走过 text 分支,思考用时要在这里补算;
           // toolNote 同样要清(text/done/中断分支都清了),否则以 replace 收尾时「查数据中…」会残留

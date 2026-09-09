@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import AuthImage from './AuthImage'
 import { copyText } from './helpers'
 import { CheckIcon, CopyIcon, PrAvatar, Spinner } from './icons'
+import MarkdownText from './MarkdownText'
 import type { HistoryState, Msg } from './types'
 
 interface Props {
@@ -28,7 +29,16 @@ interface Props {
 export default function MessageList(props: Props) {
   const { messages, historyState, sending, staggerCount, threadKey, token } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [isDark, setIsDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setIsDark(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
 
   useEffect(() => () => {
     if (copyTimer.current) clearTimeout(copyTimer.current)
@@ -137,7 +147,9 @@ export default function MessageList(props: Props) {
                   </div>
                 )}
                 {m.content && m.content !== '[图片]' && (
-                  <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed">{m.content}</div>
+                  <div className="pr-markdown break-words px-3.5 py-2.5 text-[15px] leading-relaxed">
+                    <MarkdownText messageId={m.id} streaming={m.streaming} isDark={isDark}>{m.content}</MarkdownText>
+                  </div>
                 )}
                 {blank && (
                   <div className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-[13px]" style={{ color: 'var(--pr-muted)' }}>

@@ -312,6 +312,19 @@ export const raceGoals = sqliteTable('race_goals', {
     .default(sql`(unixepoch())`),
 })
 
+export const racePlans = sqliteTable('race_plans', {
+  id: text('id').primaryKey(),
+  goalId: text('goal_id').references(() => raceGoals.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  raceDate: text('race_date'),
+  city: text('city'),
+  distanceMeters: real('distance_meters'),
+  status: text('status').notNull(),
+  evidenceJson: text('evidence_json').notNull(),
+  researchJson: text('research_json'),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+})
+
 export const healthDailyMetrics = sqliteTable('health_daily_metrics', {
   id: text('id').primaryKey(),
   date: text('date').notNull(),

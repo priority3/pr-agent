@@ -42,4 +42,6 @@ export interface RawActivity {
   calories?: number
   /** 数据来源 */
   source: string
+  /** 可由同步源直接提供的赛事名称；没有时保持为空，不凭距离猜赛事。 */
+  raceName?: string
 }

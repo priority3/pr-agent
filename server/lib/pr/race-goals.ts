@@ -3,6 +3,8 @@ import { asc, desc, eq, inArray } from 'drizzle-orm'
 import { getActivitiesDb } from '@/lib/db/client'
 import { raceGoals } from '@/lib/db/schema'
 import { generateId } from '@/lib/utils'
+import { syncRacePlanForGoal } from './race-plans'
+import { adminListRaceGoals, isAdminDataConfigured } from './race-data-client'
 
 export interface RaceGoalInput {
   name: string
@@ -130,16 +132,19 @@ export async function updateRaceGoal(id: string, input: RaceGoalUpdateInput) {
       updatedAt: new Date(),
     })
     .where(eq(raceGoals.id, id))
+  await syncRacePlanForGoal(id)
   return id
 }
 
 export async function deleteRaceGoal(id: string) {
   const db = await getActivitiesDb()
+  await syncRacePlanForGoal(id, true)
   await db.delete(raceGoals).where(eq(raceGoals.id, id))
   return id
 }
 
 export async function listRaceGoals(statuses: string[] = ['active']) {
+  if (isAdminDataConfigured() && statuses.length === 1 && statuses[0] === 'active') return adminListRaceGoals()
   const db = await getActivitiesDb()
   const rows = await db
     .select()
@@ -150,6 +155,7 @@ export async function listRaceGoals(statuses: string[] = ['active']) {
 }
 
 export async function getRaceGoalContext(limit = 3): Promise<RaceGoalContext[]> {
+  if (isAdminDataConfigured()) return (await adminListRaceGoals()).slice(0, limit)
   const db = await getActivitiesDb()
   const rows = await db
     .select()

@@ -14,8 +14,18 @@ import { missingField } from '@/lib/api-helpers'
 import { projectFriendProfile } from '@/lib/pr/memory'
 import { createRaceGoal, deleteRaceGoal, listRaceGoals, updateRaceGoal } from '@/lib/pr/race-goals'
 import { withAuth } from '@/middleware/auth'
+import { listRacePlans } from '@/lib/pr/race-plans'
+import { researchRacePlan } from '@/lib/pr/race-research'
+import { z } from 'zod'
 
 const raceGoals = new Hono()
+
+raceGoals.get('/plans', withAuth, async c => c.json({ plans: await listRacePlans() }))
+raceGoals.post('/plans/:id/research', withAuth, async c => {
+  const parsed = z.object({ sourceUrls: z.array(z.string().url()).max(6).optional() }).safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) return c.json({ error: 'Invalid JSON body' }, 400)
+  return c.json(await researchRacePlan(c.req.param('id'), { force: true, sourceUrls: parsed.data.sourceUrls }))
+})
 
 /** 可选数值字段:null 表示显式清空,undefined 表示不改。 */
 function optionalNumber(value: unknown): number | null | undefined {

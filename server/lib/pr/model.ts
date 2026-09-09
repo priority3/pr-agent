@@ -414,12 +414,13 @@ export async function callPrModel(
     return { content: '抱歉,我这次没能得出结论,请再问我一次或换个说法。', model, provider: 'claude' }
   }
 
-  // OpenAI 兼容路径:多轮 turns 一一映射;不支持 tools/图片/缓存(网关实际走 Anthropic)。
+  // OpenAI 兼容路径:多轮及图片;工具循环仍由 Anthropic 主链路承载。
   if (settings.OPENAI_API_KEY) {
     const model = settings.PR_REVIEW_MODEL || settings.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
     const client = new OpenAI({
       apiKey: settings.OPENAI_API_KEY,
       ...(settings.OPENAI_BASE_URL && { baseURL: settings.OPENAI_BASE_URL }),
+      timeout: 60_000,
     })
     if (settings.OPENAI_API_FORMAT === 'responses') {
       // Responses 的多轮 input 类型要求完整 ResponseOutputMessage;该路径不承载对话,多轮时降级为转写文本
@@ -430,7 +431,10 @@ export async function callPrModel(
       const response = await client.responses.create({
         model,
         instructions: system,
-        input: [{ role: 'user', content: [{ type: 'input_text', text: transcript }] }],
+        input: [{ role: 'user', content: [
+          { type: 'input_text', text: transcript },
+          ...images.map(image => ({ type: 'input_image' as const, image_url: `data:${image.mediaType};base64,${image.base64}`, detail: 'auto' as const })),
+        ] }],
         store: false,
       })
       const message = response.output.find(item => item.type === 'message')
@@ -444,7 +448,10 @@ export async function callPrModel(
       stream: false, // Reason: 同 Anthropic 路径,防网关默认回 SSE
       messages: [
         { role: 'system', content: system },
-        ...turns.map(turn => ({ role: turn.role, content: turn.content })),
+        ...turns.map((turn, index): OpenAI.Chat.Completions.ChatCompletionMessageParam =>
+          turn.role === 'user' && index === turns.findLastIndex(item => item.role === 'user') && images.length
+            ? { role: 'user', content: [{ type: 'text', text: turn.content }, ...images.map(image => ({ type: 'image_url' as const, image_url: { url: `data:${image.mediaType};base64,${image.base64}` } }))] }
+            : { role: turn.role, content: turn.content }),
       ],
     })
     const content = response.choices[0]?.message?.content

@@ -63,6 +63,7 @@
   "distance": 10230,                          // 米
   "duration": 3180,                           // 秒
   "title": "晨跑",                            // 可选
+  "raceName": "",                             // 可选,明确的赛事名称;没有则不填
   "isIndoor": false,                          // 可选
   "gpxData": "<gpx>…</gpx>",                  // 可选,提供则解析轨迹并生成 split
   "averagePace": 311,                         // 可选,秒/公里
@@ -74,7 +75,7 @@
 }
 ```
 
-返回 `{ imported, skipped, errors? }`。
+返回 `{ imported, updated, skipped, errors? }`。同一条活动重导入时，若补充了 `raceName`，会更新赛事名称并计入 `updated`，不会重复创建活动。比赛成绩保留在活动库中，PR 可按赛事和日期查询；长期记忆只保存备赛目标等用户事实。
 
 ## 自动同步
 

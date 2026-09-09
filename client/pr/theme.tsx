@@ -38,6 +38,13 @@ export function PrThemeStyle() {
 .pr-backdrop{background:rgba(0,0,0,.32);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);transition:opacity .3s ease}
 .pr-drawer{transition:transform .38s var(--pr-ease);box-shadow:8px 0 32px rgba(0,0,0,.14)}
 .pr .pr-input::placeholder{color:var(--pr-muted)}
+.pr .pr-markdown{min-width:0;color:var(--pr-ai-text)}
+.pr .pr-markdown .markstream-react{--code-bg:var(--pr-bg);--code-fg:var(--pr-ai-text);--code-border:var(--pr-line-strong);--link-color:var(--pr-ai-text);font:inherit;color:inherit;content-visibility:visible;contain-intrinsic-size:auto}
+.pr .pr-markdown .paragraph-node{margin:.6em 0;line-height:inherit}
+.pr .pr-markdown .heading-1,.pr .pr-markdown .heading-2,.pr .pr-markdown .heading-3,.pr .pr-markdown .heading-4,.pr .pr-markdown .heading-5,.pr .pr-markdown .heading-6{margin-top:.7em;margin-bottom:.35em}
+.pr .pr-markdown .paragraph-node:first-child,.pr .pr-markdown .heading-node:first-child,.pr .pr-markdown .list-node:first-child{margin-top:0}
+.pr .pr-markdown .paragraph-node:last-child,.pr .pr-markdown .heading-node:last-child,.pr .pr-markdown .list-node:last-child{margin-bottom:0}
+.pr .pr-markdown .inline-code{background:var(--pr-bg);color:inherit}
 .pr .pr-composer{background:var(--pr-sel);border:1px solid var(--pr-line);transition:border-color .25s,box-shadow .25s}
 .pr .pr-plus{transition:transform .3s var(--pr-spring),opacity .18s}
 .pr .pr-plus-open{transform:rotate(45deg)}

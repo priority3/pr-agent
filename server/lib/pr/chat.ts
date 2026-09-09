@@ -28,6 +28,7 @@ import {
 import { executeProviderTool, loadContextBlocks, providerTools } from './providers/registry'
 import type { KnowledgeContext } from './rag'
 import { readImageUpload, uploadNameFromUrl } from './uploads'
+import { prepareChatRacePlans } from './chat-race-plans'
 
 type ChatImage = { base64: string; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' }
 
@@ -137,6 +138,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     role: 'user',
     content: input.message.trim() || '[图片]',
     contextJson: imageUrl ? serialize({ imageUrl }) : null,
+    createdAt: now,
   })
 
   try {
@@ -144,6 +146,10 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     const todayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
     const todayWeekday = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' }).format(new Date())
     const today = `${todayDate}（${todayWeekday}，Asia/Shanghai）`
+
+    const racePlanResult = await prepareChatRacePlans({
+      messageId: userMessageId, message: input.message, createdAt: now.toISOString(), images, imageUrl,
+    }, runId, input.onStream)
 
     // ── build_context (ContextProvider 注册表统一装配 + 会话历史) ──
     // 每个 provider 在 registry 内独立超时/降级:任一失败都不该让对话挂掉。
@@ -213,7 +219,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     const contextTurn = buildChatContextTurn({
       message: input.message,
       today,
-      blocks: blocks.map(block => ({ title: block.title, lines: block.lines })),
+      blocks: [...blocks.map(block => ({ title: block.title, lines: block.lines })), ...(racePlanResult ? [racePlanResult] : [])],
       priorToolCalls: priorToolCalls.slice(-4),
       hasImage: images.length > 0,
     })
@@ -365,7 +371,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     // ── curate_memory (MemoryCurator, LLM 蒸馏) ──
     // 回复落库后作为后台任务跑:既满足"输出之后再固化记忆"(不污染当前回复),又不让
     // 第二次模型调用拖慢用户拿到回复(微信/前端都不等它)。产出一律候选,晋升靠确认或多证据。
-    void curateChatMemoryInBackground(runId, userMessageId, input.message, historyForCuration).catch(error =>
+    void curateChatMemoryInBackground(runId, userMessageId, input.message, historyForCuration, now.toISOString()).catch(error =>
       console.warn('[pr-chat] 后台记忆蒸馏失败:', (error as Error).message),
     )
 

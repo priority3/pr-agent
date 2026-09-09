@@ -172,7 +172,7 @@ export async function curateMemoryPatches(input: {
   try {
     const generated = await callPrModel(
       buildMemoryCurationSystemPrompt(),
-      buildMemoryCurationUserPrompt(raw, input.source, input.context),
+      buildMemoryCurationUserPrompt(raw, input.source, input.context, input.createdAt),
       { maxTokens: 2000 },
     )
     parsed = parseModelJson(generated.content) as { memories?: unknown }

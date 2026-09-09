@@ -88,6 +88,8 @@ curl -b /tmp/pr.cookie -X POST localhost:3030/api/pr/access/links \
 | 可观测 | `PHOENIX_COLLECTOR_ENDPOINT` / `_PROJECT_NAME` / `_API_KEY`(需自行注册 OTel provider) |
 | 调度 | `PR_SCHEDULER`(`off` = 一个 job 都不注册)、`CRON_<JOB>`,如 `CRON_PR_DAILY_REVIEW="0 12 * * *"` |
 
+共库部署时，赛事计划、正式目标、长期记忆和赛事资料由 `runPaceFlow-admin` 持有。pr-agent 配置 `RUNPACEFLOW_ADMIN_URL`（或 `PR_DATA_API_URL`）及同值 `PR_AGENT_DATA_TOKEN` 后，通过 `/api/pr-data/race-plans` 调用 admin 保存/读取；未配置时保留独立部署的本地数据库模式。admin 侧同时配置 `PR_AGENT_DATA_TOKEN`，该 token 只用于服务间数据写入，不暴露给浏览器。
+
 ## 定时任务
 
 启动时注册,全部可用 `CRON_<JOB_ID>` 覆盖;`PR_SCHEDULER=off` 则一个都不注册

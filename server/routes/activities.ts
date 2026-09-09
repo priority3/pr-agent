@@ -84,6 +84,7 @@ function coerceRawActivity(input: unknown): RawActivity {
     averageHeartRate: optionalNumber(o.averageHeartRate),
     maxHeartRate: optionalNumber(o.maxHeartRate),
     calories: optionalNumber(o.calories),
+    raceName: typeof o.raceName === 'string' && o.raceName.trim() ? o.raceName.trim() : undefined,
   }
 }
 
@@ -108,6 +109,7 @@ activitiesRoutes.post('/import', withHealthImportAuth, async c => {
 
   const db = await getDb()
   let imported = 0
+  let updated = 0
   let skipped = 0
   const errors: string[] = []
 
@@ -130,7 +132,11 @@ activitiesRoutes.post('/import', withHealthImportAuth, async c => {
         .limit(1)
 
       if (existing.length > 0) {
-        skipped++
+        // 保持活动本身幂等，同时允许同步源补回赛事名称。
+        if (activity.raceName) {
+          await syncActivity(activity)
+          updated++
+        } else skipped++
         continue
       }
 
@@ -142,7 +148,7 @@ activitiesRoutes.post('/import', withHealthImportAuth, async c => {
     }
   }
 
-  return c.json({ imported, skipped, ...(errors.length > 0 ? { errors } : {}) })
+  return c.json({ imported, updated, skipped, ...(errors.length > 0 ? { errors } : {}) })
 })
 
 export default activitiesRoutes

@@ -26,6 +26,7 @@ import {
   buildRuleBasedChatReply,
 } from './prompts-chat'
 import { executeProviderTool, loadContextBlocks, providerTools } from './providers/registry'
+import { runInChatTurn, type ChatTurnContext } from './chat-turn'
 import type { KnowledgeContext } from './rag'
 import { readImageUpload, uploadNameFromUrl } from './uploads'
 import { prepareChatRacePlans } from './chat-race-plans'
@@ -129,6 +130,10 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
 
   rootSpan.setAttribute(OI.SESSION_ID, threadId)
   rootSpan.setAttribute('pr.run_id', runId)
+
+  // 本轮的隐式上下文:给工具(目前是 sync)用 —— 它要在"同步结果稍后落地"时记住回到哪个会话。
+  // watchRegistered 由工具置位,收尾时随返回值告诉前端「继续等一会儿,可能有后续消息」。
+  const turnContext: ChatTurnContext = { runId, threadId, watchRegistered: false }
 
   const userMessageId = generateId('msg')
   await db.insert(conversationMessages).values({
@@ -280,7 +285,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     let attempts = 0
 
     try {
-      const first = await persona()
+      const first = await runInChatTurn(turnContext, () => persona())
       attempts = 1
       answer = first.content.trim() || buildRuleBasedChatReply('模型返回空内容')
       model = first.model
@@ -302,7 +307,7 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
       if (!firstEval.passed) {
         // Evaluator 不合格 → 把初稿和评审意见作为追加轮次让模型定向重写(最多一次)。
         try {
-          const second = await rewrite(answer, firstEval.warnings)
+          const second = await runInChatTurn(turnContext, () => rewrite(answer, firstEval.warnings))
           const rewritten = second.content.trim()
           const secondEval = await withSpan(
             'pr.evaluate',
@@ -385,7 +390,17 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     rootSpan.setAttribute('pr.attempts', attempts)
     rootSpan.setAttribute('pr.tool_calls', toolCalls.length)
     if (warnings.length) rootSpan.setAttribute('pr.warnings', warnings.join('；'))
-    return { threadId, runId, answer, model, provider, warnings, learnedMemoryIds: [] }
+    // activeWatch:本轮登记了同步观察 → 前端据此多等一会儿(结果会由 sync-watch 写进本会话)。
+    return {
+      threadId,
+      runId,
+      answer,
+      model,
+      provider,
+      warnings,
+      learnedMemoryIds: [],
+      activeWatch: turnContext.watchRegistered ? { kind: 'sync' as const } : null,
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.warn('[pr-chat] 编排失败:', message)
@@ -403,7 +418,17 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     // 对话必须有回复:即便编排出错,也返回兜底话(带真实报错),让微信/前端能给用户一个响应。
     const answer = buildRuleBasedChatReply(message)
     rootSpan.setAttribute(OI.OUTPUT, clip(answer, 2000))
-    return { threadId, runId, answer, model: 'rule-based-chat-v1', provider: 'local-rule', warnings: ['orchestration_failed'], learnedMemoryIds: [] }
+    return {
+      threadId,
+      runId,
+      answer,
+      model: 'rule-based-chat-v1',
+      provider: 'local-rule',
+      warnings: ['orchestration_failed'],
+      learnedMemoryIds: [],
+      // 编排失败也可能已经登记过观察(工具先跑、模型后挂)——照实带上,别让用户白等结果。
+      activeWatch: turnContext.watchRegistered ? { kind: 'sync' as const } : null,
+    }
   }
 }
 

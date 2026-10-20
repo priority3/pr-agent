@@ -41,6 +41,11 @@ export interface StreamPayload {
   message?: string
   threadId?: string
   answer?: string
+  /**
+   * 本轮登记了「结果稍后回来」的观察(目前只有对话内同步会登记):
+   * 前端据此进入一段较长的静默补拉窗口,把服务端随后写进本会话的消息显示出来。
+   */
+  activeWatch?: { kind: string } | null
 }
 
 /** GET /api/pr/chat 返回的消息行 */

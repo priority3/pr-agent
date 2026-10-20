@@ -76,15 +76,14 @@ curl -b /tmp/pr.cookie -X POST localhost:3030/api/pr/access/links \
 | 数据库 | `DATABASE_URL`(默认 `file:./data/pr.db`)、`DATABASE_AUTH_TOKEN`(远程 libsql 才需) |
 | 管理端 | `ADMIN_PASSWORD`、`ADMIN_SESSION_SECRET`(管理 API 鉴权,无内置界面)、`SETTINGS_ENCRYPTION_KEY` |
 | AI 网关 | `ANTHROPIC_API_KEY` / `_BASE_URL` / `_MODEL` / `_VISION_MODEL`;`OPENAI_API_KEY` / `_BASE_URL` / `_MODEL` / `_API_FORMAT`(这 8 键可被 `/api/pr/settings` 运行时覆盖,库内值优先) |
-| 对话 | `PR_CHAT_MAX_TOKENS`、`PR_UPLOAD_DIR`(访问令牌不走 env,见上「拿入口链接」) |
+| 对话 | `PR_CHAT_MAX_TOKENS`、`PR_UPLOAD_DIR`、`PUBLIC_BASE_URL`(对话入口链接前缀;留空则给相对路径。访问令牌不走 env,见上「拿入口链接」) |
 | 记忆 | `PR_MEMORY_DECAY_DAYS`、`PR_MEMORY_RECONCILE_APPLY` |
 | 数字分身 | `PR_PERSONA_LLM`(`off` = 只跑确定性投影)、`PR_PRESENCE_URL`(实时状态上游,留空关闭)、`LORE_INGEST_TOKEN`(pr-lore 投递令牌) |
 | 复盘 | `PR_REVIEW_MODEL`、`PR_REVIEW_PROVIDER`、`PR_RETENTION_DAYS` |
 | RAG 向量 | `PR_EMBEDDING_API_KEY` / `_BASE_URL` / `_MODEL`(留空 = 纯 BM25) |
 | 摄入 | `HEALTH_IMPORT_TOKEN`(通用导入接口的鉴权;不直连 Keep/Strava,那是 admin 的职责) |
-| 对话内触发同步 | `SYNC_WEBHOOK_URL` / `SYNC_WEBHOOK_TOKEN`(留空 = 对话里没有 `sync_activities` 工具) |
+| 对话内触发同步 | `SYNC_WEBHOOK_URL` / `SYNC_WEBHOOK_TOKEN`(留空 = 对话里没有 `sync_activities` 工具)、`PR_SYNC_WATCH_TIMEOUT_MS`(结果观察上限,默认 6 分钟) |
 | 富化 | `ENRICH_WEATHER`、`ENRICH_RACE_MATCH`(默认关) |
-| 通知 | `PUSHPLUS_TOKEN`、`PUBLIC_BASE_URL`(推送链接前缀) |
 | 可观测 | `PHOENIX_COLLECTOR_ENDPOINT` / `_PROJECT_NAME` / `_API_KEY`(需自行注册 OTel provider) |
 | 调度 | `PR_SCHEDULER`(`off` = 一个 job 都不注册)、`CRON_<JOB>`,如 `CRON_PR_DAILY_REVIEW="0 12 * * *"` |
 
@@ -102,7 +101,6 @@ curl -b /tmp/pr.cookie -X POST localhost:3030/api/pr/access/links \
 | `friend_diary` | `31 21 * * 0` | 老友日记 |
 | `memory_maintenance` | `33 3 * * *` | 记忆衰减 / 新鲜度维护 |
 | `persona_projection` | `47 3 * * *` | 数字分身投影兜底(平时由记忆/健康变更即时触发) |
-| `notification_dispatch` | `*/10 * * * *` | 派发待发通知 |
 | `retention_cleanup` | `0 3 * * 0` | 清理过期的运行快照 |
 | `sync` | `0 * * * *` | 增量拉取活动(**仅当配置了数据源凭据才注册**) |
 
@@ -117,9 +115,8 @@ server/
   lib/
     pr/             agent 核心:对话状态机、记忆、复盘、上下文装配、工具、RAG、提示词、
                     数字分身投影(persona.ts,供宿主「数字分身」面板消费)
-    db/             schema(26 表)+ 单文件 libsql client
+    db/             schema(29 表)+ 单文件 libsql client
     ingest/         GPX 解析、活动写入、Keep/Strava 适配器
-    notifications/  渠道接口 + pushplus 实现
     scheduler.ts    静态 job 配置
 client/
   pr/               H5 对话页(唯一前端入口)

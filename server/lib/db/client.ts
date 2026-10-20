@@ -151,27 +151,6 @@ export async function ensureActivitiesSchema(client: Client) {
         created_at integer DEFAULT (unixepoch()) NOT NULL,
         FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON UPDATE no action ON DELETE cascade
       )`,
-      `CREATE TABLE IF NOT EXISTS notification_deliveries (
-        id text PRIMARY KEY NOT NULL,
-        review_id text,
-        channel text NOT NULL,
-        recipient text NOT NULL,
-        title text NOT NULL,
-        content text NOT NULL,
-        payload_json text,
-        status text NOT NULL DEFAULT 'pending',
-        attempts integer NOT NULL DEFAULT 0,
-        provider_message_id text,
-        error_code text,
-        last_error text,
-        next_retry_at integer,
-        locked_by text,
-        locked_until integer,
-        sent_at integer,
-        created_at integer DEFAULT (unixepoch()) NOT NULL,
-        updated_at integer DEFAULT (unixepoch()) NOT NULL,
-        FOREIGN KEY (review_id) REFERENCES activity_reviews(id) ON UPDATE no action ON DELETE set null
-      )`,
       `CREATE TABLE IF NOT EXISTS subjective_feedback (
         id text PRIMARY KEY NOT NULL,
         activity_id text,
@@ -458,11 +437,6 @@ export async function ensureActivitiesSchema(client: Client) {
   await client.execute('CREATE INDEX IF NOT EXISTS idx_agent_runs_subject ON agent_runs(subject_type, subject_id)')
   await client.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_idempotency ON agent_runs(idempotency_key)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_agent_state_snapshots_run_id_created_at ON agent_state_snapshots(run_id, created_at)')
-  await client.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_created_at ON notification_deliveries(status, created_at)')
-  await client.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_review_id ON notification_deliveries(review_id)')
-  await client.execute(
-    'CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique_target ON notification_deliveries(review_id, channel, recipient)',
-  )
   await client.execute('CREATE INDEX IF NOT EXISTS idx_subjective_feedback_activity_id ON subjective_feedback(activity_id, created_at)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_type_status ON memory_items(type, status)')
   await client.execute('CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)')

@@ -8,7 +8,6 @@
  */
 import { Hono } from 'hono'
 
-import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
 import { generateDailyReview } from '@/lib/pr/daily'
 import { deriveSleep } from '@/lib/pr/health-derive'
 import { getLatestHealthDailyMetrics, upsertHealthDailyMetric } from '@/lib/pr/health'
@@ -150,16 +149,10 @@ health.post('/daily', withHealthImportAuth, async c => {
   }
 
   // Reason: 新鲜健康数据落库即触发当日反思(绑定该记录日期),事件驱动而非固定 cron 时钟,
-  // 用户真正醒来上报后几秒内 PR 就反思当天。非阻塞:不把上报端挂在 AI 调用上。生成成功即分发通知
-  // (不等每 10 分钟定时任务)。派发在 P4 前为 no-op stub。
+  // 用户真正醒来上报后几秒内 PR 就反思当天。非阻塞:不把上报端挂在 AI 调用上。
   void generateDailyReview({ date })
-    .then(async result => {
-      if (result?.generated) {
-        await dispatchPendingNotifications(5)
-      }
-    })
     .catch(error =>
-      console.warn('[health/daily] daily reflection/dispatch failed:', (error as Error).message),
+      console.warn('[health/daily] daily reflection failed:', (error as Error).message),
     )
 
   return c.json({ metricId: metric.id, metric })

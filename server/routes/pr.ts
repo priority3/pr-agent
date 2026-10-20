@@ -8,7 +8,6 @@
  */
 import { Hono } from 'hono'
 
-import { dispatchPendingNotifications } from '@/lib/notifications/dispatcher'
 import { missingField } from '@/lib/api-helpers'
 import { generateDailyReview } from '@/lib/pr/daily'
 import { chatWithPr, deleteConversationThread, listConversationMessages, listConversationThreads } from '@/lib/pr/chat'
@@ -419,7 +418,6 @@ pr.post('/weekly-review', withAuth, async c => {
 
   const result = await generateWeeklyReview({
     force: body.force === true,
-    enqueueNotification: body.enqueueNotification !== false,
   })
 
   return c.json(result)
@@ -446,14 +444,6 @@ pr.post('/daily-review', withAuth, async c => {
   })
 
   return c.json(result)
-})
-
-/** 通知派发手动触发(同上:定时任务归本仓后,手动补发的入口也留在本仓)。 */
-pr.post('/notifications/dispatch', withAuth, async c => {
-  const limitParam = Number(c.req.query('limit') ?? 10)
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 50) : 10
-
-  return c.json(await dispatchPendingNotifications(limit))
 })
 
 // ── 复盘(reviews:自 /api/activities/reviews* 迁入并重命名)─────────────

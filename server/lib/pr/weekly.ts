@@ -9,7 +9,6 @@ import {
   agentRuns,
   agentStateSnapshots,
   friendDiaryEntries,
-  notificationDeliveries,
   subjectiveFeedback,
 } from '@/lib/db/schema'
 import { generateId } from '@/lib/utils'
@@ -213,7 +212,6 @@ function buildDiaryContent(context: WeeklyContext) {
 
 export async function generateWeeklyReview(options: {
   force?: boolean
-  enqueueNotification?: boolean
   now?: Date
 } = {}) {
   const db = await getActivitiesDb()
@@ -302,19 +300,6 @@ export async function generateWeeklyReview(options: {
       memoryPatchesJson: serialize([]),
       model: 'rule-based-diary-v1',
     })
-
-    if (options.enqueueNotification !== false) {
-      await db.insert(notificationDeliveries).values({
-        id: generateId('noti'),
-        reviewId,
-        channel: 'pushplus',
-        recipient: 'default',
-        title: `PR 周总结：${subjectId}`,
-        content,
-        payloadJson: serialize({ subjectId, inputHash: runInputHash }),
-        status: 'pending',
-      }).onConflictDoNothing()
-    }
 
     await db
       .update(agentRuns)

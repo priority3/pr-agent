@@ -24,6 +24,11 @@ interface Deps {
    * 客户端完全能自己把它取回来;不做这件事就只剩一个不可见的空气泡或一句错误提示。
    */
   onEmptyReply: (threadId: string | null) => void
+  /**
+   * 本轮登记了「后续消息」观察(服务端 done 带 activeWatch)→ 请外层开始一段较长的静默补拉,
+   * 把服务端随后写进本会话的那条消息显示出来(对话内同步的结果就是这样回来的)。
+   */
+  onWatch: (threadId: string | null) => void
 }
 
 export interface SendInput {
@@ -214,6 +219,8 @@ export function useChatSend(deps: Deps) {
           pushReply(answer ?? '(没有回复)')
         }
         applyResult(result)
+        // 服务端登记了后续观察(如对话内同步):让外层继续盯着这个会话,别让结果落地了没人取。
+        if (result.activeWatch) deps.onWatch(replyThreadId)
       } else {
         // 没等到 done(服务端 error 事件或连接中断):服务端多半仍在算并会落库 → 去等它
         replyMayLandLater = true

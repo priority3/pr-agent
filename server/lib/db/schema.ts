@@ -174,34 +174,6 @@ export const agentStateSnapshots = sqliteTable('agent_state_snapshots', {
 })
 
 /**
- * 通知投递表 - 第一阶段先入队，dispatcher 后续接入微信测试号
- */
-export const notificationDeliveries = sqliteTable('notification_deliveries', {
-  id: text('id').primaryKey(),
-  reviewId: text('review_id').references(() => activityReviews.id, { onDelete: 'set null' }),
-  channel: text('channel').notNull(),
-  recipient: text('recipient').notNull(),
-  title: text('title').notNull(),
-  content: text('content').notNull(),
-  payloadJson: text('payload_json'),
-  status: text('status').notNull().default('pending'),
-  attempts: integer('attempts').notNull().default(0),
-  providerMessageId: text('provider_message_id'),
-  errorCode: text('error_code'),
-  lastError: text('last_error'),
-  nextRetryAt: integer('next_retry_at', { mode: 'timestamp' }),
-  lockedBy: text('locked_by'),
-  lockedUntil: integer('locked_until', { mode: 'timestamp' }),
-  sentAt: integer('sent_at', { mode: 'timestamp' }),
-  createdAt: integer('created_at', { mode: 'timestamp' })
-    .notNull()
-    .default(sql`(unixepoch())`),
-  updatedAt: integer('updated_at', { mode: 'timestamp' })
-    .notNull()
-    .default(sql`(unixepoch())`),
-})
-
-/**
  * 主观反馈表 - 用户补充 RPE、疼痛、心情和备注后进入 PR 上下文
  */
 export const subjectiveFeedback = sqliteTable('subjective_feedback', {
@@ -564,9 +536,6 @@ export type NewAgentRun = typeof agentRuns.$inferInsert
 
 export type AgentStateSnapshot = typeof agentStateSnapshots.$inferSelect
 export type NewAgentStateSnapshot = typeof agentStateSnapshots.$inferInsert
-
-export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
-export type NewNotificationDelivery = typeof notificationDeliveries.$inferInsert
 
 export type SubjectiveFeedback = typeof subjectiveFeedback.$inferSelect
 export type NewSubjectiveFeedback = typeof subjectiveFeedback.$inferInsert

@@ -69,7 +69,6 @@ activityFeedback.post('/', withAuth, async c => {
 
   const review = await generatePrReviewForActivity(activityId, {
     force: true,
-    enqueueNotification: body.enqueueNotification !== false,
     trigger: 'manual_review',
   })
 

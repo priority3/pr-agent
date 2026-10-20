@@ -5,7 +5,6 @@ import {
   activityReviews,
   agentRuns,
   agentStateSnapshots,
-  notificationDeliveries,
 } from '@/lib/db/schema'
 import { generateId } from '@/lib/utils'
 
@@ -39,13 +38,12 @@ async function writeSnapshot(runId: string, step: string, state: unknown) {
 }
 
 /**
- * Generate the daily recovery reflection (AI, health-driven) and enqueue a WeChat
- * notification. Append-only: a regenerate supersedes the previous current review.
+ * Generate the daily recovery reflection (AI, health-driven).
+ * Append-only: a regenerate supersedes the previous current review.
  */
 export async function generateDailyReview(options: {
   date?: string
   force?: boolean
-  enqueueNotification?: boolean
 } = {}) {
   const db = await getActivitiesDb()
   // Reason: bind the reflection to the day the health data actually describes, not
@@ -150,22 +148,6 @@ export async function generateDailyReview(options: {
       promptVersion: PR_DAILY_PROMPT_VERSION,
       isCurrent: true,
     })
-
-    if (options.enqueueNotification !== false) {
-      await db
-        .insert(notificationDeliveries)
-        .values({
-          id: generateId('noti'),
-          reviewId,
-          channel: 'pushplus',
-          recipient: 'default',
-          title: `PR 晨间状态：${subjectId}`,
-          content,
-          payloadJson: serialize({ subjectId, inputHash: runInputHash }),
-          status: 'pending',
-        })
-        .onConflictDoNothing()
-    }
 
     await db
       .update(agentRuns)

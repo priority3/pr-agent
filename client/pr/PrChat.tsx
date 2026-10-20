@@ -73,7 +73,7 @@ export default function PrChatPage() {
   // 历史列表 + 载入三态 + 「等回复」补拉(见 useThreadHistory)
   const {
     messages, setMessages, historyState, setHistoryState, replyWait, staggerCount,
-    loadMessages, stopReplyWait, clearMessages,
+    loadMessages, stopReplyWait, startWatch, stopWatch, clearMessages,
   } = useThreadHistory({
     authHeader,
     genRef,
@@ -194,7 +194,7 @@ export default function PrChatPage() {
     setSending(value)
   }
 
-  /** 离开当前会话前的统一收尾:中断在途请求 + 作废其回包 + 停掉等回复的补拉 */
+  /** 离开当前会话前的统一收尾:中断在途请求 + 作废其回包 + 停掉等回复的补拉与后续消息观察 */
   function leaveCurrent() {
     abortRef.current?.abort()
     abortRef.current = null
@@ -203,6 +203,7 @@ export default function PrChatPage() {
     // 会被误判成「本地已是最新」而跳过历史拉取,直接把上一个会话的消息留在屏上。
     selfSetThreadRef.current = null
     stopReplyWait()
+    stopWatch()
     markSending(false)
   }
 
@@ -303,6 +304,11 @@ export default function PrChatPage() {
     onEmptyReply: id => {
       const target = id ?? threadId
       if (target) void loadMessages(target, { silent: true })
+    },
+    // 服务端说本轮登记了后续观察(对话内同步)→ 开始盯这个会话:结果落地那条消息会自己出现
+    onWatch: id => {
+      const target = id ?? threadId
+      if (target) void startWatch(target)
     },
   })
 

@@ -11,8 +11,6 @@ export type PrFeedbackEventType =
   | 'regenerate'
   | 'memory_confirm'
   | 'memory_archive'
-  | 'notification_open'
-  | 'notification_ignore'
 
 export async function recordPrFeedbackEvent(input: {
   targetType: string

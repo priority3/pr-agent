@@ -15,7 +15,6 @@ export async function getPrMetrics(days = 30) {
   const [
     runs,
     reviews,
-    notifications,
     memories,
     feedbackEvents,
     feedback,
@@ -29,10 +28,6 @@ export async function getPrMetrics(days = 30) {
     }),
     db.execute({
       sql: `SELECT kind, COUNT(*) as count FROM activity_reviews WHERE created_at >= ? GROUP BY kind`,
-      args: [start],
-    }),
-    db.execute({
-      sql: `SELECT status, COUNT(*) as count FROM notification_deliveries WHERE created_at >= ? GROUP BY status`,
       args: [start],
     }),
     db.execute({
@@ -63,14 +58,9 @@ export async function getPrMetrics(days = 30) {
 
   const runCounts = Object.fromEntries(runs.rows.map(row => [String(row.status), numberValue(row.count)]))
   const reviewCounts = Object.fromEntries(reviews.rows.map(row => [String(row.kind), numberValue(row.count)]))
-  const notificationCounts = Object.fromEntries(notifications.rows.map(row => [String(row.status), numberValue(row.count)]))
   const memoryCounts = Object.fromEntries(memories.rows.map(row => [String(row.status), numberValue(row.count)]))
   const feedbackEventCounts = Object.fromEntries(feedbackEvents.rows.map(row => [String(row.event_type), numberValue(row.count)]))
   const totalRuns = Object.values(runCounts).reduce((sum, count) => sum + count, 0)
-  const sentNotifications = numberValue(notificationCounts.sent)
-  const failedNotifications = numberValue(notificationCounts.failed)
-  const pendingNotifications = numberValue(notificationCounts.pending)
-  const totalNotifications = sentNotifications + failedNotifications + pendingNotifications
   const totalMemories = Object.values(memoryCounts).reduce((sum, count) => sum + count, 0)
 
   return {
@@ -87,11 +77,6 @@ export async function getPrMetrics(days = 30) {
     reviews: {
       total: Object.values(reviewCounts).reduce((sum, count) => sum + count, 0),
       byKind: reviewCounts,
-    },
-    notifications: {
-      total: totalNotifications,
-      byStatus: notificationCounts,
-      sentRate: rate(sentNotifications, totalNotifications),
     },
     memories: {
       total: totalMemories,
@@ -132,7 +117,6 @@ export async function getPrFlywheel(days = 30) {
     memoryCorrectionRate: rate((metrics.feedbackEvents.byType.memory_archive ?? 0) + (metrics.feedbackEvents.byType.correction ?? 0), memoryTotal),
     contextHitRate: rate((metrics.facts.healthDailyMetrics > 0 ? 1 : 0) + (metrics.facts.activeRaceGoals > 0 ? 1 : 0), 2),
     ragUsefulRate: 0,
-    notificationEngagementRate: metrics.notifications.sentRate,
     reviewRegenerationRate: rate(metrics.feedbackEvents.byType.regenerate ?? 0, reviewTotal),
     source: {
       metrics,

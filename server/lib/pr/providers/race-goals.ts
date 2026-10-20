@@ -3,18 +3,44 @@ import { listRacePlans } from '../race-plans'
 import { raceResearchLines, researchRacePlan } from '../race-research'
 import { z } from 'zod'
 
-import type { ContextProvider } from './types'
+import type { ChatContextInput, ContextProvider } from './types'
+
+/**
+ * 相对今天的距离标注(Asia/Shanghai)。
+ *
+ * Reason: 赛事日期过去之后,模型极易把"下个月18号"这类原话按今天重新推算、再把已过去的
+ * 日期顺移到下个月 —— 线上就出现过把 10-18 说成 11-18(2026-10-20 的对话)。把"已过去 N 天"
+ * 显式写在日期旁边,模型没有顺移的空间。
+ *
+ * today 取注入值(与 prompt 里「今天」同一来源),评测/回放才可复现;解析失败回落真实时钟。
+ */
+function todayShanghai(injected?: string): string {
+  const fromInjected = injected?.match(/\d{4}-\d{2}-\d{2}/)?.[0]
+  if (fromInjected) return fromInjected
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+}
+
+function dateTag(date: string | null, today: string): string {
+  if (!date) return ''
+  const diff = Math.round((Date.parse(date) - Date.parse(today)) / 86400000)
+  if (!Number.isFinite(diff)) return ''
+  if (diff === 0) return '（今天）'
+  if (diff > 0) return `（还有 ${diff} 天）`
+  return `（已过去 ${-diff} 天）`
+}
 
 /** 比赛目标(迁自 chat.ts goalLines)。data.goalLines 供回复落库/快照复用。 */
 export const raceGoalsProvider: ContextProvider = {
   key: 'goals',
   priority: 60,
-  load: async () => {
+  load: async (input: ChatContextInput) => {
+    const today = todayShanghai(input?.today)
     const [goals, plans] = await Promise.all([getRaceGoalContext(20), listRacePlans()])
-    const goalLines = goals.map(goal => `${raceGoalSummary(goal)}；日期 ${goal.raceDate}；${goal.distanceMeters / 1000} 公里；目标 ${goal.targetType}${goal.targetTimeSec ? ` ${goal.targetTimeSec} 秒` : ''}；优先级 ${goal.priority}`)
+    const goalLines = goals.map(goal => `${raceGoalSummary(goal)}；日期 ${goal.raceDate}${dateTag(goal.raceDate, today)}；${goal.distanceMeters / 1000} 公里；目标 ${goal.targetType}${goal.targetTimeSec ? ` ${goal.targetTimeSec} 秒` : ''}；优先级 ${goal.priority}`)
     const planLines = plans.flatMap(plan => [
-      `用户赛事计划 ${plan.id}：${plan.name}；${plan.raceDate ?? '日期待确认'}；${plan.city ?? '地点待确认'}；${plan.distanceMeters == null ? '距离待确认' : `${plan.distanceMeters / 1000} 公里`}；${plan.status}`,
-      ...plan.evidence.slice(-2).map(evidence => `用户来源 ${evidence.source}，消息 ${evidence.messageId}，发送于 ${evidence.messageCreatedAt}，日期参考 ${evidence.dateReference ?? '未知'}；原话：${JSON.stringify(evidence.quote)}`),
+      `用户赛事计划 ${plan.id}：${plan.name}；${plan.raceDate ?? '日期待确认'}${dateTag(plan.raceDate, today)}；${plan.city ?? '地点待确认'}；${plan.distanceMeters == null ? '距离待确认' : `${plan.distanceMeters / 1000} 公里`}；${plan.status}`,
+      // 原话要保留(可追溯),但必须说明"已换算":否则模型会拿今天重算「下个月18号」。
+      ...plan.evidence.slice(-2).map(evidence => `用户来源 ${evidence.source}，消息 ${evidence.messageId}，发送于 ${evidence.messageCreatedAt}，日期参考 ${evidence.dateReference ?? '未知'}；原话（其中相对日期已按发送时间换算成上面的绝对日期，勿按今天重算）：${JSON.stringify(evidence.quote)}`),
       ...raceResearchLines(plan.research),
     ])
     const upcoming = plans.filter(plan => plan.status === 'active' && plan.raceDate).sort((a, b) => a.raceDate!.localeCompare(b.raceDate!))

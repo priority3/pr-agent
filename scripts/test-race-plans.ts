@@ -143,6 +143,12 @@ try {
     assert(block?.lines.some(line => line.includes(document.url)))
     assert(block?.lines.some(line => line.includes('成都半马')))
   })
+  // 线上事故:10-20 那次对话把 10-18 说成「下个月18号 = 11月18日」——原话被模型按今天重算。
+  // 修法是渲染时把日期距离写明、并声明原话里的相对日期已换算。
+  check('渲染标注日期距离并声明原话相对日期已换算', () => {
+    assert(block?.lines.some(line => line.includes('2026-10-18') && line.includes('还有')))
+    assert(block?.lines.some(line => line.includes('勿按今天重算')))
+  })
   await updateRaceGoal(saved[0].goalId!, { raceDate: '2026-10-20T00:00:00+08:00' })
   const updated = await getRacePlan(saved[0].id)
   const [updatedMemory] = await db.select().from(memoryItems).where(eq(memoryItems.id, `mem_${saved[0].id}`))

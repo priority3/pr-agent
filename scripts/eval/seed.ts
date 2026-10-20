@@ -33,7 +33,6 @@ const TABLES_TO_RESET = [
   'memory_events',
   'conversation_messages',
   'review_annotations',
-  'notification_deliveries',
   'rag_retrieval_logs',
   'activity_reviews',
   'splits',

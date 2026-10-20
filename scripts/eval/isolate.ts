@@ -41,9 +41,6 @@ if (!process.env.PR_UPLOAD_DIR) {
   process.env.PR_UPLOAD_DIR = './data/eval-uploads'
 }
 
-// 通知渠道:评测绝不真发推送(种子跑复盘/日报时派发器可能被触发)。
-delete process.env.PUSHPLUS_TOKEN
-
 // tracing 可选:配了 PHOENIX_COLLECTOR_ENDPOINT 才接,且默认进独立项目,避免与生产 trace 混在一起。
 if (!process.env.PHOENIX_PROJECT_NAME) {
   process.env.PHOENIX_PROJECT_NAME = 'pr-agent-eval'

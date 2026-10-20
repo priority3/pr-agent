@@ -15,7 +15,6 @@
   并删掉 `DATABASE_AUTH_TOKEN`。生产库就叫 `data/pr.db`,所以守卫还会在路径指向 `pr.db`
   或非 `file:` 库时**直接抛错**,零生产污染。
 - `PR_UPLOAD_DIR` → `./data/eval-uploads`(多模态用例的图片,不落生产 uploads 卷)。
-- 删掉 `PUSHPLUS_TOKEN`:评测过程中触发的复盘/派发不会真发推送。
 - `PHOENIX_PROJECT_NAME` 缺省为 `pr-agent-eval`;并清掉宿主机全局的 `ANTHROPIC_AUTH_TOKEN` /
   自定义头 / 默认模型(见下面「坑 1」)。
 

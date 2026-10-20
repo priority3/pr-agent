@@ -103,9 +103,8 @@ POST 到 `/api/activities/import`,喂距离时长就行,有 GPX 更好。谁来�
 |---|---|
 | **模型** | 任何 Anthropic 协议或 OpenAI 兼容的网关:env 填 `*_BASE_URL` + `*_MODEL`,或调 `/api/pr/settings` 运行时改,免重启 |
 | **数据来源** | 通用导入接口 `POST /api/activities/import`,谁喂都行;要自动直采 Keep/Strava 就把 `DATABASE_URL` 指向 admin 写的那个库 |
-| **推送** | 配 `PUSHPLUS_TOKEN` 就推微信;不配就安静待着 |
 | **知识库检索** | 配 embedding 服务走向量+BM25 混检;不配就纯 BM25,照样能用 |
-| **跟别的应用共用一个库** | `DATABASE_URL` 指向那个库,并设 `PR_SCHEDULER=off`——定时任务交给那边跑,否则同一份数据会被复盘两遍、通知推两次 |
+| **跟别的应用共用一个库** | `DATABASE_URL` 指向那个库,并设 `PR_SCHEDULER=off`——定时任务交给那边跑,否则同一份数据会被复盘两遍 |
 
 完整配置项见 [`.env.example`](./.env.example),每个键都有注释。
 

@@ -21,7 +21,6 @@ import {
   type JobOverride,
 } from './scheduler-store'
 
-import { dispatchPendingNotifications } from './notifications/dispatcher'
 import { generateDailyReview } from './pr/daily'
 import { generateFriendDiary } from './pr/diary'
 import { reconcileMemories, runMemoryMaintenance } from './pr/memory'
@@ -41,7 +40,7 @@ async function jobPrDailyReview() {
   console.log('[Scheduler] Running PR daily reflection job...')
   const startTime = Date.now()
   try {
-    const result = await generateDailyReview({ enqueueNotification: true })
+    const result = await generateDailyReview()
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(
       `[Scheduler] pr_daily_review ${result.generated ? 'generated' : 'skipped'}: ${result.subjectId} in ${elapsed}s`,
@@ -55,7 +54,7 @@ async function jobWeeklyReview() {
   console.log('[Scheduler] Running PR weekly review job...')
   const startTime = Date.now()
   try {
-    const result = await generateWeeklyReview({ enqueueNotification: true })
+    const result = await generateWeeklyReview()
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
     console.log(
       `[Scheduler] weekly_review ${result.generated ? 'generated' : 'skipped'}: ${result.subjectId} in ${elapsed}s`,
@@ -98,20 +97,6 @@ async function jobMemoryMaintenance() {
     )
   } catch (err) {
     console.warn(`[Scheduler] memory_maintenance error: ${(err as Error).message}`)
-  }
-}
-
-async function jobNotificationDispatch() {
-  console.log('[Scheduler] Running PR notification dispatch job...')
-  const startTime = Date.now()
-  try {
-    const result = await dispatchPendingNotifications(10)
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-    console.log(
-      `[Scheduler] notification_dispatch: ${result.sent} sent, ${result.failed} failed, ${result.skipped} skipped in ${elapsed}s`,
-    )
-  } catch (err) {
-    console.warn(`[Scheduler] notification_dispatch error: ${(err as Error).message}`)
   }
 }
 
@@ -162,7 +147,6 @@ export const DEFAULT_JOBS: JobDef[] = [
   { id: 'memory_maintenance', name: 'PR 记忆维护(衰减/新鲜度)', cron: '33 3 * * *', handler: jobMemoryMaintenance },
   // 数字分身投影兜底:每天 3:47(记忆维护之后,顺带吸收其衰减结果)。
   { id: 'persona_projection', name: 'PR 数字分身投影(兜底)', cron: '47 3 * * *', handler: jobPersonaProjection },
-  { id: 'notification_dispatch', name: 'PR 通知分发', cron: '*/10 * * * *', handler: jobNotificationDispatch },
   { id: 'retention_cleanup', name: '数据保留清理', cron: '0 3 * * 0', handler: jobRetentionCleanup },
 ]
 

@@ -4,11 +4,9 @@ import OpenAI from 'openai'
 
 import { getActivitiesDb } from '@/lib/db/client'
 import {
-  activities,
   activityReviews,
   agentRuns,
   agentStateSnapshots,
-  notificationDeliveries,
   reviewAnnotations,
 } from '@/lib/db/schema'
 import { getRuntimeSettings } from '@/lib/config'
@@ -42,7 +40,6 @@ export const PR_REVIEW_KINDS = ['pr_activity_review', 'pr_recovery_review', 'pr_
 
 export interface GeneratePrReviewOptions {
   force?: boolean
-  enqueueNotification?: boolean
   trigger?: 'activity_synced' | 'manual_review'
 }
 
@@ -214,30 +211,6 @@ export async function listCurrentPrReviews(
   return rows.map(toReviewSummary)
 }
 
-export async function enqueueReviewNotification(reviewId: string): Promise<string | null> {
-  const db = await getActivitiesDb()
-  const rows = await db.select().from(activityReviews).where(eq(activityReviews.id, reviewId)).limit(1)
-  const review = rows[0]
-  if (!review) return null
-
-  const notificationId = generateId('noti')
-  await db
-    .insert(notificationDeliveries)
-    .values({
-      id: notificationId,
-      reviewId,
-      channel: 'pushplus',
-      recipient: 'default',
-      title: 'PR 跑后复盘',
-      content: review.content,
-      payloadJson: serialize({ activityId: review.activityId, inputHash: review.inputHash }),
-      status: 'pending',
-    })
-    .onConflictDoNothing()
-
-  return notificationId
-}
-
 export async function generatePrReviewForActivity(
   activityId: string,
   options: GeneratePrReviewOptions = {},
@@ -399,22 +372,6 @@ export async function generatePrReviewForActivity(
       await db.insert(reviewAnnotations).values(annotationRows)
     }
 
-    if (options.enqueueNotification !== false) {
-      await db
-        .insert(notificationDeliveries)
-        .values({
-          id: generateId('noti'),
-          reviewId,
-          channel: 'pushplus',
-          recipient: 'default',
-          title: `PR 跑后复盘：${context.activity.summary.title}`,
-          content: generated.content,
-          payloadJson: serialize({ activityId, inputHash }),
-          status: 'pending',
-        })
-        .onConflictDoNothing()
-    }
-
     await recordPrMetricEvent({
       runId,
       metricName: 'pr_review_quality_warnings',
@@ -434,7 +391,7 @@ export async function generatePrReviewForActivity(
       .set({
         status: 'succeeded',
         model: generated.model,
-        lastStep: 'enqueue_notification',
+        lastStep: 'persist_output',
         completedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -462,36 +419,18 @@ export async function generatePrReviewForActivity(
   }
 }
 
-// 只有近 24h 完成的活动才推送微信;首次/批量同步的历史活动只生成复盘、不推送,
-// 避免一次拉入几十条历史跑步时把用户微信刷屏。
-const NOTIFY_RECENT_WINDOW_MS = 24 * 60 * 60 * 1000
-
 export async function generatePrReviewsForActivities(
   activityIds: string[],
-): Promise<{ generated: number; skipped: number; failed: number; notified: number }> {
-  const db = await getActivitiesDb()
+): Promise<{ generated: number; skipped: number; failed: number }> {
   let generated = 0
   let skipped = 0
   let failed = 0
-  let notified = 0
 
   for (const activityId of Array.from(new Set(activityIds))) {
     try {
-      // Reason: 按活动完成时间决定是否推送——历史回填静默(只入库复盘),新鲜跑步才推。
-      const [act] = await db
-        .select({ startTime: activities.startTime })
-        .from(activities)
-        .where(eq(activities.id, activityId))
-        .limit(1)
-      const isRecent = act?.startTime
-        ? Date.now() - act.startTime.getTime() <= NOTIFY_RECENT_WINDOW_MS
-        : false
-      if (isRecent) notified++
-
       const before = await getCurrentPrReview(activityId)
       const review = await generatePrReviewForActivity(activityId, {
         trigger: 'activity_synced',
-        enqueueNotification: isRecent,
       })
       if (!review) {
         skipped++
@@ -506,5 +445,5 @@ export async function generatePrReviewsForActivities(
     }
   }
 
-  return { generated, skipped, failed, notified }
+  return { generated, skipped, failed }
 }

@@ -11,6 +11,7 @@
  */
 import type { PrModelToolSpec } from '../model'
 
+import { queryActivityContext } from '../context'
 import { getChatTurn, markChatTurnWatchRegistered } from '../chat-turn'
 import { registerSyncWatch } from '../sync-watch'
 import type { ContextProvider } from './types'
@@ -30,7 +31,7 @@ function webhookUrl(): string {
 const SYNC_TOOL: PrModelToolSpec = {
   name: 'sync_activities',
   description:
-    '立刻去拉一次最新的运动数据(手表/APP 侧新记录同步进库)。用户说「同步一下」「拉一下最新的」「更新下数据」「刚跑完怎么还没有」时用它。返回只有条数,要讲具体某条的距离配速,同步完再调 query_activities 查。慢操作,可能十几秒;返回 pending 表示还在后台跑、没跑完 —— 这时按返回里的 note 说:note 说已登记观察,就可以告诉他「等好了我来说一声」;没登记就只能让他过一会儿回来再问一次。任何情况下都别说已经拉好了。',
+    '立刻去拉一次最新的运动数据(手表/APP 侧新记录同步进库)。用户说「同步一下」「拉一下最新的」「更新下数据」「刚跑完怎么还没有」时用它。返回是条数(没有新行入库时会同时带上库里最新一条,用来核对「他说的那次」在不在库)。说具体某条的距离配速要调 query_activities 查。慢操作,可能十几秒;返回 pending 表示还在后台跑、没跑完 —— 这时按返回里的 note 说:note 说已登记观察,就可以告诉他「等好了我来说一声」;没登记就只能让他过一会儿回来再问一次。任何情况下都别说已经拉好了,也别把「没有新行」说成「手表没上传」。',
   inputSchema: { type: 'object', properties: {} },
 }
 
@@ -93,15 +94,38 @@ export const syncProvider: ContextProvider = {
       const count = typeof json.count === 'number' ? json.count : 0
       lastCall = {
         at: Date.now(),
-        summary: count > 0 ? `拉到 ${count} 条新记录` : '没有新记录',
+        summary: count > 0 ? `拉到 ${count} 条新记录` : '这次没有新的入库行',
       }
+      if (count > 0) {
+        return JSON.stringify({
+          ok: true,
+          count,
+          note: '新记录已入库;要说具体哪次跑了多少,调 query_activities 查。',
+        })
+      }
+
+      // Reason: count=0 只代表「这次没有新行写进库」，他刚跑的那次往往早就同步过了。
+      // 这里必须把库里最新一条一起带回去 —— 否则模型只能照着 note 猜「手表还没上传」，
+      // 而上下文里又明明列着那次，同一段话里前后打架（线上真实事故）。
+      const latest = await queryActivityContext({ limit: 1 }).catch(() => [])
+      const latestRow = latest[0]
       return JSON.stringify({
         ok: true,
-        count,
-        note:
-          count > 0
-            ? '新记录已入库;要说具体哪次跑了多少,调 query_activities 查。'
-            : '同步成功,但没有新记录 —— 手表那边可能还没上传。',
+        count: 0,
+        latest: latestRow
+          ? {
+              date: latestRow.date,
+              daysAgo: latestRow.daysAgo,
+              type: latestRow.type,
+              distanceKm: latestRow.distanceKm,
+              durationMin: latestRow.durationMin,
+              pace: latestRow.paceText ? `${latestRow.paceText}/km` : null,
+              avgHeartRate: latestRow.avgHeartRate,
+            }
+          : null,
+        note: latestRow
+          ? `同步成功,但这次没有新行入库 —— 常见原因是这条之前已经同步过了,不等于手表没上传。库里最新的仍是 ${latestRow.date} 那次 ${latestRow.distanceKm} km。他问「刚跑那次怎么样」就直接按库里这条答,别说「还没上传」。`
+          : '同步成功,这次没有新行入库,库里也没有任何记录 —— 可以如实说没查到新的。',
       })
     } catch (error) {
       // Reason: 超时不等于失败 —— 请求已经打过去了,上游会自己跑完(客户端断连不会

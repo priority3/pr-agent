@@ -42,6 +42,13 @@ export interface MemoryContext {
   evidence: MemoryEvidence[]
   version: number
   lastSeenAt: string
+  /**
+   * 首次写入时间(ISO)。
+   * Reason: 记忆里可能出现「下个月18号」这类相对说法 —— 只有知道它是什么时候写的,
+   * 才能换算成正确日期(2026-10-20 的线上事故:9 月写的「下个月」被按今天算成了 11 月)。
+   * 用 createdAt 而不是 lastSeenAt:相对说法的锚点是**第一次说这话的时刻**。
+   */
+  createdAt: string
 }
 
 export interface MemoryPatch {
@@ -115,6 +122,7 @@ function rowToMemory(row: typeof memoryItems.$inferSelect): MemoryContext {
     evidence: parseEvidence(row.evidenceJson),
     version: Number(row.version ?? 1),
     lastSeenAt: row.lastSeenAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
   }
 }
 

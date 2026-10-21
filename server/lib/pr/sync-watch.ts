@@ -7,13 +7,15 @@
  * 已整体下线,唯一可用的投递面就是对话本身,所以在结果落地后往该会话写一条 PR 消息。
  *
  * 观察方式:与 admin 共库部署时直接读 activities 表(本轮同步写入的行 createdAt 必定晚于
- * 触发时刻),不引入跨服务回调。独立部署(各写各的库)时读不到新行,会按「没有新记录」如实
- * 收尾 —— 不撒谎,只是能力受限,注释在此说明以免后人误判。
+ * 触发时刻),不引入跨服务回调。独立部署(各写各的库)时读不到新行,会如实收尾「这次没有
+ * 新行入库」并附上库里最新一条 —— 不撒谎,只是能力受限,注释在此说明以免后人误判。
+ * 注意:「没有新行」只表示本次没写入,绝不能推断成「手表没上传」——他刚跑那次往往早就
+ * 同步过了,旧文案一口咬定没上传,会和上下文里列着的那次直接打架(线上真实事故)。
  *
  * 单用户单进程:状态放内存即可,进程重启丢一次观察(用户可以再说一次「同步一下」)。
  * 落库始终只有一条(terminal 守卫),失败只记日志。
  */
-import { eq, gte } from 'drizzle-orm'
+import { desc, eq, gte } from 'drizzle-orm'
 
 import { getActivitiesDb } from '@/lib/db/client'
 import { activities, conversationMessages, conversationThreads } from '@/lib/db/schema'
@@ -157,16 +159,44 @@ async function finishSuccess(watch: ActiveWatch, rows: Awaited<ReturnType<typeof
 }
 
 async function finishEmpty(watch: ActiveWatch) {
-  const text = watch.queryOk
-    ? '同步跑完了，但没有新记录 —— 手表那边可能还没上传。过会儿你再说一声「同步一下」，我再拉一次。'
-    : '同步那边我没确认到结果，过会儿你再说一声「同步一下」，我再拉一次。'
+  // Reason: 「没有新行入库」≠「手表没上传」。他刚跑那次通常早就同步过了,只查新行
+  // 永远查不到 → 旧文案一口咬定「手表还没上传」,和上下文里列着的那次直接打架。
+  // 收尾时补一句库里最新一条,把话说成事实。
+  const latest = await queryLatestActivity().catch(() => null)
+  const text = !watch.queryOk
+    ? '同步那边我没确认到结果，过会儿你再说一声「同步一下」，我再拉一次。'
+    : latest
+      ? `同步跑完了，这次没有新记录写进库 —— 可能是之前就同步过了，不一定是手表没上传。库里最新的还是 ${shanghaiStamp(latest.startTime)} 那次${typeLabel(latest.type)}：${metricsLine(latest)}。`
+      : '同步跑完了，这次没有新记录写进库，库里也还是空的。过会儿你再说一声「同步一下」，我再拉一次。'
   clearWatch(watch)
   try {
-    await deliver(watch.threadId, watch.runId, text, { delivered: 0, queryOk: watch.queryOk })
-    await writeSnapshot(watch.runId, 'sync_watch_result', { delivered: 0, queryOk: watch.queryOk }).catch(() => {})
+    await deliver(watch.threadId, watch.runId, text, { delivered: 0, queryOk: watch.queryOk, latestId: latest?.id ?? null })
+    await writeSnapshot(watch.runId, 'sync_watch_result', {
+      delivered: 0,
+      queryOk: watch.queryOk,
+      latestId: latest?.id ?? null,
+    }).catch(() => {})
   } catch (error) {
     console.warn('[sync-watch] 投递失败:', (error as Error).message)
   }
+}
+
+/** 库里最新一条(不论是不是本次同步写入),用于「没有新行」时把话落到事实上。 */
+async function queryLatestActivity() {
+  const db = await getActivitiesDb()
+  const [row] = await db
+    .select({
+      id: activities.id,
+      type: activities.type,
+      distance: activities.distance,
+      duration: activities.duration,
+      averagePace: activities.averagePace,
+      startTime: activities.startTime,
+    })
+    .from(activities)
+    .orderBy(desc(activities.startTime))
+    .limit(1)
+  return row ?? null
 }
 
 async function queryNewActivities(since: Date) {

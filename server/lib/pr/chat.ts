@@ -188,7 +188,9 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     const activityData = blockData.get('activities') as
       | { recentActivityCount: number; lastRunDaysAgo: number | null }
       | undefined
-    const goalData = blockData.get('goals') as { goalLines: string[] } | undefined
+    const goalData = blockData.get('goals') as
+      | { goalLines: string[]; plans?: Array<{ name: string; city: string | null; raceDate: string | null }> }
+      | undefined
     const envData = blockData.get('environment') as { hasEnvironment: boolean } | undefined
 
     // 历史(不含刚插入的这条)→ 原生多轮 turns(参考 Claude Code,不再压平成文本):
@@ -253,6 +255,9 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
       hasMemoryOrHabit: memoryItems.length > 0 || (profile?.trainingPreferences.length ?? 0) > 0,
       doNotAssume: profile?.doNotAssume ?? [],
       hasEnvironment: envData?.hasEnvironment ?? false,
+      // 赛程自洽校验:把绝对日期带进 Evaluator,抓回复里自编的倒计时/周次/场次间隔。
+      today: todayDate,
+      raceSchedule: (goalData?.plans ?? []).map(plan => ({ name: plan.name, city: plan.city, date: plan.raceDate })),
     }
     // FriendPersona 带只读工具(providers 聚合):快照不够时自己查(每次调用写 tool_use 快照可回放)
     const toolCalls: Array<{ name: string; input: unknown; resultPreview?: string }> = []

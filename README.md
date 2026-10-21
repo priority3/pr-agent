@@ -120,7 +120,7 @@ POST 到 `/api/activities/import`,喂距离时长就行,有 GPX 更好。谁来�
 
 - [数据摄入接口](./docs/ingest.md) — 两个入口的完整字段与示例
 - [接口与配置参考](./docs/reference.md) — 全部 API、env 分组、目录结构
-- [行为评测](./scripts/eval/README.md) — 109 条 L1–L4 用例,在隔离库里跑真实编排,出通过率与失败日志
+- [行为评测](./scripts/eval/README.md) — 117 条 L1–L4 用例,在隔离库里跑真实编排,出通过率与失败日志
 - 本地开发:`npm install` → `bun run dev`(后端)+ `bun run dev:client`(前端)
 
 ---

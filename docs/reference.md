@@ -84,7 +84,7 @@ curl -b /tmp/pr.cookie -X POST localhost:3030/api/pr/access/links \
 | 摄入 | `HEALTH_IMPORT_TOKEN`(通用导入接口的鉴权;不直连 Keep/Strava,那是 admin 的职责) |
 | 对话内触发同步 | `SYNC_WEBHOOK_URL` / `SYNC_WEBHOOK_TOKEN`(留空 = 对话里没有 `sync_activities` 工具)、`PR_SYNC_WATCH_TIMEOUT_MS`(结果观察上限,默认 6 分钟) |
 | 富化 | `ENRICH_WEATHER`、`ENRICH_RACE_MATCH`(默认关) |
-| 可观测 | `PHOENIX_COLLECTOR_ENDPOINT` / `_PROJECT_NAME` / `_API_KEY`(需自行注册 OTel provider) |
+| 可观测 | `PHOENIX_COLLECTOR_ENDPOINT` / `_PROJECT_NAME` / `_API_KEY`(服务端已内置 provider,填 endpoint 即生效;留空则 no-op、零开销) |
 | 调度 | `PR_SCHEDULER`(`off` = 一个 job 都不注册)、`CRON_<JOB>`,如 `CRON_PR_DAILY_REVIEW="0 12 * * *"` |
 
 共库部署时，赛事计划、正式目标、长期记忆和赛事资料由 `runPaceFlow-admin` 持有。pr-agent 配置 `RUNPACEFLOW_ADMIN_URL`（或 `PR_DATA_API_URL`）及同值 `PR_AGENT_DATA_TOKEN` 后，通过 `/api/pr-data/race-plans` 调用 admin 保存/读取；未配置时保留独立部署的本地数据库模式。admin 侧同时配置 `PR_AGENT_DATA_TOKEN`，该 token 只用于服务间数据写入，不暴露给浏览器。
@@ -121,7 +121,7 @@ server/
 client/
   pr/               H5 对话页(唯一前端入口)
 scripts/
-  eval/             行为评测 harness(109 条 L1–L4 用例,隔离库跑真实编排)
+  eval/             行为评测 harness(117 条 L1–L4 用例,隔离库跑真实编排)
 data/               pr.db + uploads(持久化目录,备份即拷此处)
 ```
 

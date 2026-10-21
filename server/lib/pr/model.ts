@@ -442,21 +442,113 @@ export async function callPrModel(
       if (!text || text.type !== 'output_text') throw new Error('No text content in Responses API output')
       return { content: text.text, model: response.model || model, provider: 'openai-compatible' }
     }
-    const response = await client.chat.completions.create({
-      model,
-      max_tokens: maxTokens,
-      stream: false, // Reason: 同 Anthropic 路径,防网关默认回 SSE
-      messages: [
-        { role: 'system', content: system },
-        ...turns.map((turn, index): OpenAI.Chat.Completions.ChatCompletionMessageParam =>
-          turn.role === 'user' && index === turns.findLastIndex(item => item.role === 'user') && images.length
-            ? { role: 'user', content: [{ type: 'text', text: turn.content }, ...images.map(image => ({ type: 'image_url' as const, image_url: { url: `data:${image.mediaType};base64,${image.base64}` } }))] }
-            : { role: turn.role, content: turn.content }),
-      ],
-    })
-    const content = response.choices[0]?.message?.content
-    if (!content) throw new Error('No content in Chat Completions response')
-    return { content, model: response.model || model, provider: 'openai-compatible' }
+    // ── Chat Completions:与 Anthropic 路径同构的工具循环 ──
+    // Reason: 换模型不等于降功能 —— 工具该有就得有。实测不传 tools 时 DeepSeek 会自造一套
+    // 调用标记(DSML)吐出来、正文为空,用户拿到一段垃圾文本;传了 tools 它就返回标准
+    // tool_calls。所以这里照搬 Anthropic 路径的轮次/降级语义,只换协议外壳。
+    const maxToolRounds = opts.maxToolRounds ?? 3
+    let useTools = Boolean(opts.tools?.length && opts.executeTool)
+    const oaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = (opts.tools ?? []).map(tool => ({
+      type: 'function' as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema as Record<string, unknown>,
+      },
+    }))
+    const isBadReq = (error: unknown) => (error as { status?: number } | null)?.status === 400
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: system },
+      ...turns.map((turn, index): OpenAI.Chat.Completions.ChatCompletionMessageParam =>
+        turn.role === 'user' && index === turns.findLastIndex(item => item.role === 'user') && images.length
+          ? { role: 'user', content: [{ type: 'text', text: turn.content }, ...images.map(image => ({ type: 'image_url' as const, image_url: { url: `data:${image.mediaType};base64,${image.base64}` } }))] }
+          : { role: turn.role, content: turn.content }),
+    ]
+
+    let interimText = '' // 工具轮里模型顺带说的话;空响应兜底时好过整句丢掉
+    for (let round = 0; round <= maxToolRounds; round++) {
+      // 轮次耗尽:这一轮不再给工具(等价 Anthropic 的 tool_choice:none),硬逼出正文
+      const exhausted = round >= maxToolRounds
+      const response: OpenAI.Chat.Completions.ChatCompletion = await withSpan(
+        'llm.openai',
+        'LLM',
+        {
+          [OI.LLM_MODEL]: model,
+          'llm.round': round,
+          [OI.INPUT]: isTracingEnabled() ? clip(messages[messages.length - 1], 1000) : '',
+        },
+        async span => {
+          let res: OpenAI.Chat.Completions.ChatCompletion
+          try {
+            res = await client.chat.completions.create({
+              model,
+              max_tokens: maxTokens,
+              stream: false, // Reason: 同 Anthropic 路径,防网关默认回 SSE
+              messages,
+              ...(useTools && !exhausted ? { tools: oaTools, tool_choice: 'auto' as const } : {}),
+            })
+          } catch (error) {
+            if (useTools && isBadReq(error)) {
+              console.warn('[pr-model] 400,疑似 tools 不被支持,去工具重试:', (error as Error).message)
+              useTools = false
+              res = await client.chat.completions.create({ model, max_tokens: maxTokens, stream: false, messages })
+            } else {
+              throw error
+            }
+          }
+          const usage = res.usage
+          if (usage?.prompt_tokens != null) span.setAttribute(OI.LLM_TOKENS_PROMPT, usage.prompt_tokens)
+          if (usage?.completion_tokens != null) span.setAttribute(OI.LLM_TOKENS_COMPLETION, usage.completion_tokens)
+          if (span.isRecording()) span.setAttribute(OI.OUTPUT, clip(res.choices[0]?.message?.content ?? '', 2000))
+          return res
+        },
+      )
+
+      const choice = response.choices[0]
+      // tool_calls 是联合类型(custom tool call 没有 function 字段),先筛出标准 function call。
+      const rawCalls = choice?.message?.tool_calls ?? []
+      const calls = rawCalls.filter(call => call.type === 'function')
+      const text = (choice?.message?.content ?? '').trim()
+
+      if (calls.length > 0 && useTools && !exhausted) {
+        if (text) interimText = text
+        messages.push({ role: 'assistant', content: choice?.message?.content ?? null, tool_calls: rawCalls })
+        for (const call of calls) {
+          const fn = (call as { function?: { name?: string; arguments?: string } }).function
+          const name = fn?.name ?? ''
+          if (!name) continue
+          let input: unknown = {}
+          try {
+            input = JSON.parse(fn?.arguments || '{}')
+          } catch {
+            input = {}
+          }
+          const result = await withSpan(
+            `tool.${name}`,
+            'TOOL',
+            { [OI.TOOL_NAME]: name, [OI.INPUT]: isTracingEnabled() ? clip(input, 1000) : '' },
+            async span => {
+              const output = await opts.executeTool!(name, input)
+              if (span.isRecording()) span.setAttribute(OI.OUTPUT, clip(output, 2000))
+              return output
+            },
+          )
+          try {
+            opts.onToolCall?.(name, input, result)
+          } catch {
+            /* 观察钩子不影响主流程 */
+          }
+          messages.push({ role: 'tool', tool_call_id: call.id, content: result })
+        }
+        continue
+      }
+
+      if (text) return { content: text, model: response.model || model, provider: 'openai-compatible' }
+      // 空响应:再转一轮(上限由 round 保证终止);实在没有就用工具轮攒的过场白兜底。
+    }
+    if (interimText) return { content: interimText, model, provider: 'openai-compatible' }
+    throw new Error('No content in Chat Completions response')
   }
 
   throw new Error('未配置任何 AI 服务（ANTHROPIC_API_KEY / OPENAI_API_KEY）')

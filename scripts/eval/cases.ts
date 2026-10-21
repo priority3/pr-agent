@@ -22,8 +22,10 @@ import { L4_CASES } from './cases/l4'
 import { MEDICAL2_CASES } from './cases/medical2'
 import { MEMORY2_CASES } from './cases/memory2'
 import { NOISE_CASES } from './cases/noise'
+import { RELIABILITY_CASES } from './cases/reliability'
 import { RETRIEVAL_CASES } from './cases/retrieval'
 import { TIME_CASES } from './cases/time'
+import { TOOL_COVERAGE_CASES } from './cases/tool-coverage'
 import { UNITS_CASES } from './cases/units'
 import { VISION_CASES } from './cases/vision'
 import { WRITE_BOUNDARY_CASES } from './cases/write-boundary'
@@ -50,6 +52,10 @@ export const CASES: EvalCase[] = [
   ...NOISE_CASES,
   // ── RAG 混合检索联动(2026-07-21)──
   ...RETRIEVAL_CASES,
+  // ── 编排机制本身(2026-10-20):工具轮耗尽硬停 + Evaluator 重写路径 ──
+  ...RELIABILITY_CASES,
+  // ── 工具选择覆盖补全(2026-10-20)──
+  ...TOOL_COVERAGE_CASES,
 ]
 
 // Reason: 拆多文件后最容易出的错就是 id 撞车/漏改——模块加载即断言,fail fast。

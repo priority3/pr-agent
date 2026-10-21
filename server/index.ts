@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { serveStatic } from 'hono/bun'
 
 import { ensureDatabaseReady } from '@/bootstrap'
+import { initTracing } from '@/lib/observability/otel'
 import { startScheduler } from '@/lib/scheduler'
 import activitiesRoutes from '@/routes/activities'
 import jobsRoutes from '@/routes/jobs'
@@ -60,8 +61,11 @@ app.get('/', serveStatic({ path: './client/dist/pr/index.html', onFound: staticC
 app.get('/pr', serveStatic({ path: './client/dist/pr/index.html', onFound: staticCache }))
 app.use('/*', serveStatic({ root: './client/dist', onFound: staticCache }))
 
-// 启动序列:先建表(消除首个带会话请求的 "no such table"),再显式启动调度器,最后 serve。
-// scheduler 显式启动替代源仓"首个 GET /api/health 懒引导"。调度失败不阻断 HTTP 服务。
+// 启动序列:先接 tracing → 建表(消除首个带会话请求的 "no such table") → 显式启动调度器 → serve。
+// tracing 必须最先:配了 PHOENIX_COLLECTOR_ENDPOINT 才注册 provider,之后所有 withSpan 才有去处;
+// 未配时是空操作,零开销。scheduler 显式启动替代源仓"首个 GET /api/health 懒引导"。
+// 调度失败不阻断 HTTP 服务。
+await initTracing()
 await ensureDatabaseReady()
 await startScheduler().catch(err =>
   console.warn('[server] startScheduler failed:', err instanceof Error ? err.message : err),

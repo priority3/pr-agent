@@ -12,6 +12,10 @@ export const FAILURE_REASONS = [
   'fabricated_fact',
   'wrong_readback',
   'aggregation_error',
+  // 同一段回复里的赛程时间自相矛盾(倒计时/周次/场次间隔与绝对日期对不上)。
+  'schedule_contradiction',
+  // 无环境数据时给出温度/AQI/降水概率这类**数值级**断言(世界常识不算捏造)。
+  'unsupported_environment_claim',
   // 工具
   'missing_tool_call',
   'wrong_tool_or_params',
@@ -34,6 +38,7 @@ export const FAILURE_REASONS = [
   // 人设/格式
   'tone_off',
   'too_long',
+  'too_short',
   'rule_recital',
   'repeated_correction',
   // 可靠性
@@ -207,6 +212,18 @@ function mapEvaluatorWarning(w: string): FailureReason {
     case 'unsupported_recovery_claim':
     case 'unsupported_habit_claim':
       return 'fabricated_fact'
+    // 环境数值捏造走自己的桶:此前落进 default→tone_off,真实的环境数据编造会被
+    // 统计成「语气不对」,既掩盖问题又污染直方图。
+    case 'unsupported_environment_claim':
+      return 'unsupported_environment_claim'
+    case 'schedule_countdown_mismatch':
+    case 'schedule_week_mismatch':
+    case 'schedule_gap_mismatch':
+      return 'schedule_contradiction'
+    case 'empty':
+      return 'empty_response'
+    case 'too_short':
+      return 'too_short'
     case 'orchestration_failed':
       return 'orchestration_failed'
     default:

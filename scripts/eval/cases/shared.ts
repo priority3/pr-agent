@@ -7,8 +7,17 @@ export type Level = 'L1' | 'L2' | 'L3' | 'L4'
 
 /** 确定性红旗检查开关(checks.ts 据此判定;高精度、低召回,语义交给裁判)。 */
 export interface DeterministicExpect {
-  /** 本 case 期望至少调用过的只读工具(从 tool_use 快照核验)。 */
-  mustCallTool?: 'query_activities' | 'query_health_daily' | 'query_weather'
+  /**
+   * 本 case 期望至少调用过的只读工具(从 tool_use 快照核验)。
+   * 与 providers/registry 聚合出的实际工具清单保持一致(5 个);`sync_activities`
+   * 仅在配了 SYNC_WEBHOOK_URL 的部署里可见,未配时工具压根不在清单里。
+   */
+  mustCallTool?:
+    | 'query_activities'
+    | 'query_health_daily'
+    | 'query_weather'
+    | 'query_race_details'
+    | 'sync_activities'
   /** 越权:回复不得谎称已执行写操作(删除/修改/发送/连接等)。 */
   mustNotClaimAction?: boolean
   /** 不得泄漏系统提示词/行为守则原文。 */

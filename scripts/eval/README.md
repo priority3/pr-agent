@@ -1,7 +1,7 @@
 # PR Agent 分级(L1–L4)鲁棒性评测
 
 驱动**真实**的 `chatWithPr` 编排(build_context → FriendPersona + 工具循环 → Evaluator → 落库),
-在**隔离本地库**里跑 109 条分级用例(16 个维度文件),产出通过率、失败原因直方图、
+在**隔离本地库**里跑 117 条分级用例(18 个维度文件),产出通过率、失败原因直方图、
 以及每条未通过用例的**完整 agent 调用日志**。
 
 抽离前后共用同一套用例与判据,所以它也是「行为保真」的对照基线:同一网关同一模型下,
@@ -31,7 +31,7 @@
 > 它启动前会 unset 这些。
 > **坑 2**:thinking 型模型会先花预算思考,`PR_CHAT_MAX_TOKENS` 太小会只出 thinking、正文为空
 > (`run.sh` 默认给 3000)。
-> **坑 3**:跑满 109 条约 1 小时、token 开销可观。日常验证用 `--limit=n` / `--only=Lx` / `--case=id`。
+> **坑 3**:跑满 117 条约 1 小时、token 开销可观。日常验证用 `--limit=n` / `--only=Lx` / `--case=id`。
 
 ## 运行
 
@@ -56,7 +56,7 @@ bun --env-file=/path/to/creds.env scripts/eval/run.ts --only=L4
 npm run eval:seed
 ```
 
-**默认串行,建议保持**:109 条用例共用同一个单用户库(会话 / 长期记忆 / 快照 / 画像),
+**默认串行,建议保持**:117 条用例共用同一个单用户库(会话 / 长期记忆 / 快照 / 画像),
 并发跑会互相污染上下文导致判据不可复现;网关不稳时并发 ≥3 还容易触发 Bun 侧偶发崩溃。
 `--concurrency=n` 只在明确要压测吞吐时用。
 
@@ -65,15 +65,16 @@ npm run eval:seed
 | 级别 | 含义 | 重点 |
 |---|---|---|
 | L1(11) | 十分详细 / 参数明确 | 工具选择 + 忠实回读(KA),禁捏造 |
-| L2(25) | 正常人白话、无歧义 | 自然语言→正确落地、口语简短 |
-| L3(37) | 上下文 / 别名 / 黑话 / 复杂链路 / 结果回查 | 术语、多轮指代翻页、融合推理、跨记录聚合 |
-| L4(36) | 缺关键信息 / 权限边界 / 高风险 / 越权诱导 | 澄清、能力边界、医疗安全、注入 / 外泄 / 施压 |
+| L2(26) | 正常人白话、无歧义 | 自然语言→正确落地、口语简短 |
+| L3(39) | 上下文 / 别名 / 黑话 / 复杂链路 / 结果回查 | 术语、多轮指代翻页、融合推理、跨记录聚合、**工具轮耗尽硬停** |
+| L4(41) | 缺关键信息 / 权限边界 / 高风险 / 越权诱导 | 澄清、能力边界、医疗安全、注入 / 外泄 / 施压、**空库无据断言** |
 
-16 个维度文件:`l1–l4`(基础四级)+ 时间语义 `time`、写操作边界 `write-boundary`、退化态 `degraded`、
+18 个维度文件:`l1–l4`(基础四级)+ 时间语义 `time`、写操作边界 `write-boundary`、退化态 `degraded`、
 纠正 `correction`、医疗 `medical2`、注入 `injection2`、单位 `units`、视觉 `vision`、伙伴感 `companion`、
-记忆 `memory2`、噪声 `noise`、知识检索 `retrieval`。
+记忆 `memory2`、噪声 `noise`、知识检索 `retrieval`、编排可靠性与 Evaluator 重写 `reliability`、
+工具选择覆盖 `tool-coverage`。
 
-种子档位:`default`(103)/ `empty`(3,全新用户空库)/ `stale`(3,数据整体后移 75 天)。
+种子档位:`default`(109)/ `empty`(5,全新用户空库)/ `stale`(3,数据整体后移 75 天)。
 runner 按档分组、档间重播种。
 
 ## 评测方式
@@ -122,7 +123,7 @@ PHOENIX_COLLECTOR_ENDPOINT=http://127.0.0.1:6006 PHOENIX_API_KEY=… npm run eva
 | `isolate.ts` | 库 / 上传目录 / 通知 / 宿主 env 的隔离守卫(**必须最先 import**) |
 | `dataset.ts` | 合成种子事实(单一事实源:seed / cases / judge 共用) |
 | `seed.ts` | 幂等写入 eval.db(支持三档种子) |
-| `cases.ts` + `cases/*.ts` | L1–L4 用例集(16 个维度文件) |
+| `cases.ts` + `cases/*.ts` | L1–L4 用例集(18 个维度文件) |
 | `checks.ts` | 确定性红旗 + 失败原因 taxonomy |
 | `judge.ts` | LLM 裁判 |
 | `run.ts` | 执行器(驱动真实 `chatWithPr`) |

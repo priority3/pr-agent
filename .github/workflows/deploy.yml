@@ -2,22 +2,26 @@ name: deploy
 
 # main 有推送 → 自动部署到服务器。
 #
-# 机制:GitHub runner 构建镜像,经 ssh 管道直传到服务器 `docker load`,再重启容器。
+# 机制(2026-10-26 改):rsync 源码到服务器,在服务器上 `docker build` 后重启容器。
 #
-# 为什么不在服务器上现场构建(2026-09-07 改):服务器拉 npm 单个包是好的(实测 0.6s/200),
-# 但几百个包并发下载会被掐断,构建时好时坏。构建挪到 runner 后用的是 GitHub 的网络。
+# 为什么不再「runner 构建镜像 + ssh 传」(原方案,2026-09-07 引入):
+#   那条路每一步都没有层复用 —— `docker save` 导出的是完整镜像,服务器 `docker load` 也不认
+#   「这几层我已有」。实测镜像 392~445 MB、`gzip -1` 后 149 MB,而这条跨境链路只有 14~31 KB/s,
+#   单次部署 1 小时 48 分到 4 小时(2026-10-20 当天三次实测)。
+#   而服务器上 `oven/bun:1.3.1`(221 MB)与 `node:24-slim` 本来就在本地,层缓存能直接复用:
+#   同一份源码在服务器上构建实测 88 秒(冷)/ 38 秒(依赖层命中)。
+#   代价:构建吃服务器 CPU,且要求服务器能装 npm 依赖 —— 见下一条。
 #
-# 为什么不用 registry:先试过 GHCR,这台服务器拉不动 —— docker pull 401MB 镜像时 30 秒
-# 内存储增长 0 MB,进程挂着却没有任何数据流入。而 ssh 这条链路一直是好的(rsync、所有
-# 远程诊断都走它),所以改由它驮镜像。代价是每次传全量(没有层复用),换来的是确定性。
+# 为什么当年反而挪去 runner:服务器拉单个 npm 包没问题(0.6s/200),但几百个包并发会被掐断。
+#   现在 Dockerfile 的 `npm ci` 默认走 npmmirror(`--build-arg NPM_REGISTRY` 可覆盖),规避这一点。
 #
-# 更要紧的是可见性:此前部署步骤是 `docker compose up -d --build 2>&1 | tail -20`,
-# shell 取的是管道最后一个命令(tail)的退出码 —— 构建失败 workflow 照样显示 success。
-# admin 那边就因此静默漏上线过一次(源码 rsync 到了、镜像没建出来、容器继续跑旧的)。
-# 所有 run 块补 set -euo pipefail。
+# 可见性(踩过的坑,别改回去):所有 run 块一律 `set -euo pipefail`。
+#   曾用 `docker compose up -d --build 2>&1 | tail -20`,shell 取的是管道最后一个命令的退出码 ——
+#   构建失败 workflow 照样绿。admin 那边就因此静默漏上线过一次(源码 rsync 到了、镜像没建出来、
+#   容器继续跑旧的)。
 #
 # 为什么仍然 rsync:服务器的 /root/pr-agent 不是 git 仓库(只有源码副本 + .env + data/),
-# compose 挂载的 ./data 与备份脚本都在那个目录下,保持同步便于排查。它不再是构建来源。
+#   compose 挂载的 ./data 与备份脚本都在那个目录下;现在它同时是构建上下文。
 on:
   push:
     branches: [main]
@@ -25,10 +29,10 @@ on:
 
 concurrency:
   group: deploy-pr-agent
-  cancel-in-progress: false # 部署不可中断:半路取消会留下传到一半的镜像
+  cancel-in-progress: false # 部署不可中断:构建/重启半路取消会留下半成品
 
 env:
-  # 本地 tag(不进任何 registry);服务器 compose 用同名引用 + pull_policy: never。
+  # 服务器 compose 里写死 `image: pr-agent:latest` + `pull_policy: never`,构建必须打同一个 tag。
   IMAGE: pr-agent:latest
 
 jobs:
@@ -43,19 +47,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: 构建镜像
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          load: true # 装进 runner 本地 daemon,下一步 docker save 导出
-          tags: ${{ env.IMAGE }}
-          # GitHub Actions 缓存:未变的层不重建。
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: 准备 SSH
         env:
@@ -74,10 +65,10 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # 不再是构建来源(镜像在 runner 上建),但服务器目录下的辅助文件仍需保持最新。
+        # 只需传源码:整个仓库 gzip 后约 476 KB,底座与依赖层全部由服务器本地缓存复用。
         # --delete 清掉服务器上已从仓库删除的文件。排除项是「服务器独有、仓库不该覆盖」的:
         #   .env            —— 密钥与部署参数,只存在于服务器
-        #   docker-compose.yml —— 服务器版挂了 rpf_shared_data 外部卷等本地拓扑
+        #   docker-compose.yml —— 服务器版是 host 网络 + 外部卷,与仓库示例不同
         #   data/           —— 运行数据(pr.db、上传的图片等)
         run: |
           set -euo pipefail
@@ -90,38 +81,25 @@ jobs:
             --exclude 'node_modules' \
             ./ "$USER@$HOST:/root/pr-agent/"
 
-      - name: 传输镜像到服务器
+      - name: 在服务器上构建并启动
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
           USER: ${{ secrets.DEPLOY_USER }}
-        # 镜像经 ssh 管道直传,不落盘、不经过任何 registry。
-        #
-        # Reason: 本想用 GHCR,但这台服务器拉不动 —— docker pull 401MB 的镜像时
-        # 30 秒内存储增长 0 MB,进程挂着却没有任何数据流入(层存储在
-        # pkg-containers.githubusercontent.com)。而 ssh 这条链路一直是好的:rsync、
-        # 所有远程诊断都走它。所以改由它驮镜像。
-        #
-        # gzip -1:docker save 导出的是未压缩层,node_modules 这类文本压缩比很高;
-        # 用最低档是因为瓶颈在带宽不在 CPU,-1 与 -9 的体积差远小于耗时差。
+          IMAGE: ${{ env.IMAGE }}
+        # 服务器 compose 没有 build 段(只有 image + pull_policy: never),所以这里用纯
+        # `docker build` 打同名 tag;compose 发现镜像 ID 变了会重建容器。
+        # 构建失败 = 本步骤非 0 = workflow 红,旧容器继续跑旧镜像(不会半更新)。
         run: |
           set -euo pipefail
-          docker save "$IMAGE" | gzip -1 | \
-            ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" \
-              'gunzip | docker load'
-
-      - name: 启动
-        env:
-          HOST: ${{ secrets.DEPLOY_HOST }}
-          PORT: ${{ secrets.DEPLOY_PORT }}
-          USER: ${{ secrets.DEPLOY_USER }}
-        # 只动 app 服务:同机上的 pr-litestream 不属于本 compose(手动起的),别碰它。
-        run: |
-          set -euo pipefail
-          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" 'bash -s' <<'REMOTE'
+          ssh -i ~/.ssh/deploy -p "$PORT" -o BatchMode=yes "$USER@$HOST" "IMAGE=$IMAGE bash -s" <<'REMOTE'
           set -euo pipefail
           cd /root/pr-agent
+          start=$(date +%s)
+          docker build -t "$IMAGE" .
+          echo "构建耗时 $(( $(date +%s) - start ))s"
           docker compose up -d app
+          # 只清一周前的悬空镜像,别把回滚用的近期镜像删了。
           docker image prune -f --filter 'until=168h' >/dev/null 2>&1 || true
           REMOTE
 

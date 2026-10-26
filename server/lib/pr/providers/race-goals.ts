@@ -47,13 +47,14 @@ export const raceGoalsProvider: ContextProvider = {
     const undated = plans.filter(plan => plan.status === 'active' && !plan.raceDate)
     // Reason: 模型会把用户原话里的「隔一周」「下周」当事实,和倒计时拼出互斥的时间线
     // (线上:南宁 29 天后 +「下周的成都赛」+「两场隔 7 天」)。修法是补事实,不是加守则:
-    // 每场的倒计时计划行里已有(dateTag),这里只补它缺的两样 —— 场次间隔、日期待确认标记。
-    // 间隔与周次的最终防线在 evaluator 的 checkRaceSchedule(硬校验,不占 prompt)。
+    // 每场的倒计时计划行里已有(dateTag),这里只补它缺的两样 —— 场次间隔、日期待确认标记,
+    // 且**不带任何指令文字**(口径讲法在提示词的"本轮才适用"块,间隔/周次的硬校验在
+    // evaluator 的 checkRaceSchedule)。事实块保持纯数据。
     const gapLines = upcoming.slice(1).map((plan, index) => {
       const days = Math.round((Date.parse(plan.raceDate!) - Date.parse(upcoming[index].raceDate!)) / 86400000)
-      return `- ${upcoming[index].name} → ${plan.name} 相隔 ${days} 天（按绝对日期算的间隔，回答先后/间隔用这个数，别用原话里的「隔一周」）`
+      return `- ${upcoming[index].name} → ${plan.name} 相隔 ${days} 天`
     })
-    const undatedLines = undated.map(plan => `- ${plan.name}：日期待确认（没有倒计时/周次可讲）`)
+    const undatedLines = undated.map(plan => `- ${plan.name}：日期待确认`)
     return {
       key: 'goals',
       title: '# 比赛目标',

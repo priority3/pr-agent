@@ -226,7 +226,10 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     const contextTurn = buildChatContextTurn({
       message: input.message,
       today,
-      blocks: [...blocks.map(block => ({ title: block.title, lines: block.lines })), ...(racePlanResult ? [racePlanResult] : [])],
+      blocks: [
+        ...blocks.map(block => ({ kind: block.kind ?? block.key, title: block.title, lines: block.lines })),
+        ...(racePlanResult ? [{ kind: 'race-plan-result', ...racePlanResult }] : []),
+      ],
       priorToolCalls: priorToolCalls.slice(-4),
       hasImage: images.length > 0,
     })
@@ -261,10 +264,17 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     }
     // FriendPersona 带只读工具(providers 聚合):快照不够时自己查(每次调用写 tool_use 快照可回放)
     const toolCalls: Array<{ name: string; input: unknown; resultPreview?: string }> = []
+    const tools = providerTools()
+    // 条件注入:本轮真有赛事/同步能力时才把对应口径拼进提示词(常驻基座只留身份+口吻+通用边界)。
+    // 依据取编排层已经拿到的东西,不额外查库。
+    const systemPrompt = buildChatSystemPrompt({
+      hasRace: (goalData?.plans?.length ?? 0) > 0 || Boolean(racePlanResult),
+      hasSync: tools.some(tool => tool.name === 'sync_activities'),
+    })
     const modelOpts = {
       maxTokens: CHAT_MAX_TOKENS,
       images,
-      tools: providerTools(),
+      tools,
       executeTool: executeProviderTool,
       onToolCall: (name: string, toolInput: unknown, result: string) => {
         toolCalls.push({ name, input: toolInput, resultPreview: result.slice(0, 300) })
@@ -273,12 +283,12 @@ async function chatWithPrInner(input: ChatWithPrInput, rootSpan: Span) {
     }
     // persona 带流式回调;rewrite 不带 —— 二稿 delta 交错会把客户端已收起的思考/正文搅乱,
     // 改写场景由路由层对比 streamedText 与最终 answer 后发 replace 整段替换。
-    const persona = () => callPrModel(buildChatSystemPrompt(), turns, { ...modelOpts, onStream: input.onStream })
+    const persona = () => callPrModel(systemPrompt, turns, { ...modelOpts, onStream: input.onStream })
     // 重写 = 追加一轮(assistant 初稿 + 系统评审),模型看着自己写的定向修,而不是丢稿盲写。
     // images 会附着到最后一条 user(评审轮),模型重写时仍看得到图。
     const rewrite = (draft: string, rewriteWarnings: string[]) =>
       callPrModel(
-        buildChatSystemPrompt(),
+        systemPrompt,
         [...turns, { role: 'assistant', content: draft }, { role: 'user', content: buildChatRewriteNote(rewriteWarnings) }],
         modelOpts,
       )

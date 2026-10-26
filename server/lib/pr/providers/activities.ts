@@ -62,8 +62,9 @@ export const activitiesProvider: ContextProvider = {
 
     return {
       key: 'activities',
-      title: '# 最近运动记录（手表同步，可直接引用；更早的、按类型找、复盘某天、看趋势 → query_activities）',
-      lines: lines.length ? lines : ['- 暂无同步记录（可用 query_activities 再确认）'],
+      // 事实块只说事实:工具用法去 schema、行为守则去提示词,这里不再内嵌指令。
+      title: '# 最近运动记录',
+      lines: lines.length ? lines : ['- 暂无运动记录'],
       data: { recentActivityCount: recent.length, lastRunDaysAgo: lastRun?.daysAgo ?? null },
     }
   },

@@ -19,6 +19,11 @@ export interface ChatContextInput {
 
 export interface ContextBlock {
   key: string
+  /**
+   * 增量/缓存对齐用的稳定标识(省略则取 key)。与 Codex 的 `content_kind` 同职责:
+   * 渲染时作为区块开闭标记 `<kind>…</kind>`,让每块可独立定位、未来可只重发变化的那块。
+   */
+  kind?: string
   /** 区块标题行,如「# 最近身体数据」。 */
   title: string
   /** 渲染行(含各自的「- 暂无」兜底);整块不渲染时 load 返回 null。 */

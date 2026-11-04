@@ -9,3 +9,4 @@ eval-runs
 .gitignore
 *.log
 .DS_Store
+design

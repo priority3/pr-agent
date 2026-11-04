@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PR 对话页 · 改造对照</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 32px 64px;
+    background: #f7f7f5; color: #18181b;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .pagehead { max-width: 900px; margin: 0 auto 28px; display: flex; align-items: baseline; gap: 14px; }
+  .pagehead h1 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: .2px; }
+  .pagehead span { font-size: 11.5px; color: #a1a1aa; letter-spacing: .3px; }
+  .stage { display: flex; gap: 48px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 14px; }
+  .coltag { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #52525b; }
+  .coltag b { font-weight: 500; color: #18181b; font-size: 12.5px; }
+  .coltag em { font-style: normal; color: #a1a1aa; }
+  .chip { width: 6px; height: 6px; border-radius: 999px; background: #d4d4d8; }
+  .chip.on { background: #a3e635; }
+
+  .phone {
+    position: relative; width: 390px; height: 760px; overflow: hidden;
+    background: #fff; border-radius: 26px;
+    border: 1px solid #e4e4e7;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.02), 0 8px 32px rgba(0,0,0,.06);
+    display: flex; flex-direction: column;
+  }
+  .statusbar { height: 22px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; font-size: 10px; color: #a1a1aa; font-variant-numeric: tabular-nums; }
+
+  /* ───────── A：现状 ───────── */
+  .a .hdr {
+    flex: none; height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 14px;
+    background: rgba(255,255,255,.78); backdrop-filter: blur(16px) saturate(1.5);
+    border-bottom: 1px solid #ececee;
+  }
+  .a .ico { width: 28px; height: 28px; display: grid; place-items: center; color: #6b6b72; }
+  .a .logo { width: 32px; height: 32px; border-radius: 999px; border: 1px solid #e0e0e3; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: #18181b; }
+  .a .title { font-size: 15px; font-weight: 500; letter-spacing: -.2px; }
+  .a .sub { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #a3a3ac; margin-top: 1px; }
+  .a .dot { width: 6px; height: 6px; border-radius: 999px; background: #a3e635; }
+
+  .a .msgs { flex: 1; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .a .row { display: flex; align-items: flex-end; gap: 8px; }
+  .a .row.mine { justify-content: flex-end; }
+  .a .ava { flex: none; width: 28px; height: 28px; border-radius: 999px; border: 1px solid #e0e0e3; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: #18181b; }
+  .a .bubble { max-width: 80%; border-radius: 18px 18px 18px 6px; background: #f1f1f3; padding: 10px 14px; font-size: 15px; line-height: 1.62; }
+  .a .bubble.mine { border-radius: 18px 18px 6px 18px; background: #141417; color: #f7f7f8; }
+  .a .bubble p { margin: 0 0 8px; }
+  .a .bubble p:last-child { margin-bottom: 0; }
+  .a .think { font-size: 12px; color: #a3a3ac; margin-bottom: 6px; }
+
+  .a .composer { flex: none; padding: 10px 12px 14px; }
+  .a .pill { display: flex; align-items: flex-end; gap: 4px; padding: 6px; border-radius: 26px; background: #f0f0f2; border: 1px solid #ececee; }
+  .a .plus { width: 36px; height: 36px; border-radius: 999px; display: grid; place-items: center; color: #6b6b72; }
+  .a .ph { flex: 1; font-size: 15px; color: #a3a3ac; padding: 8px 6px; }
+  .a .send { width: 36px; height: 36px; border-radius: 999px; background: #a3e635; color: #1a2e05; display: grid; place-items: center; }
+
+  /* ───────── B：改造版 ───────── */
+  .b .hdr {
+    flex: none; height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: #fff; border-bottom: 1px solid #ececee;
+  }
+  .b .ico { width: 26px; height: 26px; display: grid; place-items: center; color: #71717a; }
+  .b .logo { width: 26px; height: 26px; border-radius: 8px; border: 1px solid #e4e4e7; display: grid; place-items: center; font-size: 11px; font-weight: 500; color: #18181b; }
+  .b .title { font-size: 14px; font-weight: 500; letter-spacing: 0; }
+  .b .sub { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #a1a1aa; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .b .dot { width: 5px; height: 5px; border-radius: 999px; background: #a3e635; }
+
+  .b .msgs { flex: 1; overflow: hidden; padding: 18px 20px 0; display: flex; flex-direction: column; }
+  .b .daydiv { display: flex; align-items: center; gap: 10px; font-size: 11px; color: #a1a1aa; margin-bottom: 18px; }
+  .b .daydiv::before, .b .daydiv::after { content: ""; height: 1px; flex: 1; background: #f1f1f3; }
+
+  .b .turn { margin-bottom: 22px; }
+  .b .mine { display: flex; justify-content: flex-end; margin-bottom: 22px; }
+  .b .mine .txt {
+    max-width: 78%; background: #f4f4f5; border-radius: 12px; padding: 9px 12px;
+    font-size: 14px; line-height: 1.65; color: #18181b;
+  }
+  .b .meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #a1a1aa; margin-bottom: 8px; font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+  .b .meta b { font-weight: 500; color: #52525b; }
+  .b .body { font-size: 14px; line-height: 1.78; color: #18181b; }
+  .b .body p { margin: 0 0 10px; }
+  .b .body p:last-child { margin-bottom: 0; }
+  .b .body em { font-style: normal; border-bottom: 1px solid #d4d4d8; }
+
+  .b .items { margin-top: 14px; border-top: 1px solid #f1f1f3; }
+  .b .item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 11px 0;
+    border-bottom: 1px solid #f1f1f3; cursor: pointer; user-select: none;
+    transition: opacity .25s ease;
+  }
+  .b .item:last-child { border-bottom: 0; }
+  .b .tick {
+    flex: none; width: 15px; height: 15px; margin-top: 2px; border-radius: 999px;
+    border: 1px solid #d4d4d8; display: grid; place-items: center;
+    transition: background .18s ease, border-color .18s ease, transform .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  .b .tick svg { opacity: 0; transition: opacity .15s ease; }
+  .b .item.on .tick { background: #a3e635; border-color: #a3e635; transform: scale(1.06); }
+  .b .item.on .tick svg { opacity: 1; }
+  .b .item .t { flex: 1; font-size: 13.5px; line-height: 1.6; color: #18181b; transition: color .2s ease; }
+  .b .item .tag { flex: none; font-size: 11px; color: #a1a1aa; font-variant-numeric: tabular-nums; padding-top: 3px; }
+  .b .item.on .t { color: #a1a1aa; }
+  .b .foot { font-size: 11px; color: #a1a1aa; margin-top: 10px; font-variant-numeric: tabular-nums; }
+
+  .b .composer { flex: none; padding: 12px 16px 16px; background: #fff; }
+  .b .card { display: flex; align-items: flex-end; gap: 6px; padding: 7px 8px; border-radius: 14px; background: #fff; border: 1px solid #e4e4e7; transition: border-color .2s ease; }
+  .b .card:focus-within { border-color: #18181b; }
+  .b .plus { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: #a1a1aa; }
+  .b .ph { flex: 1; font-size: 14px; color: #a1a1aa; padding: 3px 2px; }
+  .b .send { width: 28px; height: 28px; border-radius: 8px; background: #18181b; color: #fff; display: grid; place-items: center; }
+
+  .nav { display: flex; justify-content: center; margin-top: 28px; }
+  .nav p { margin: 0; font-size: 11.5px; color: #a1a1aa; letter-spacing: .2px; }
+</style>
+</head>
+<body>
+
+<div class="pagehead">
+  <h1>PR 对话页 · 改造对照</h1>
+  <span>同一段对话，同一套品牌 token，只改结构</span>
+</div>
+
+<div class="stage">
+
+  <div class="col">
+    <div class="coltag"><span class="chip"></span><b>现在</b><em>iMessage 式气泡</em></div>
+    <div class="phone a">
+      <div class="statusbar"><span>9:41</span><span>5G</span></div>
+      <div class="hdr">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+        <div class="logo">PR</div>
+        <div style="flex:1;min-width:0">
+          <div class="title">膝外侧疼，要不要停</div>
+          <div class="sub"><span class="dot"></span>PR · 你的运动伙伴</div>
+        </div>
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+      </div>
+
+      <div class="msgs">
+        <div class="row mine">
+          <div class="bubble mine">今天跑了 10 公里，配速 5'20"，但最后 2 公里膝盖外侧有点疼，是不是要停两天？</div>
+        </div>
+
+        <div class="row">
+          <div class="ava">PR</div>
+          <div class="bubble">
+            <div class="think">已思考 4 秒</div>
+            <p>先别急着停，也别硬撑。膝外侧疼在跑量突然上来时很常见，多数是髂胫束紧张，不是关节伤。</p>
+            <p>接下来三天可以这样：把今天剩下的跑量换成快走；每天靠墙侧躺滚泡沫轴 2 分钟；跑前加一组臀中肌激活。</p>
+            <p>如果下楼梯时刺痛，或者三天没有减轻，再做进一步检查。</p>
+          </div>
+        </div>
+
+        <div class="row mine">
+          <div class="bubble mine">那我明天还能慢跑吗</div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="pill">
+          <div class="plus"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+          <div class="ph">和 PR 说点什么…</div>
+          <div class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="coltag"><span class="chip on"></span><b>改造版</b><em>内容前置，界面退场</em></div>
+    <div class="phone b">
+      <div class="statusbar"><span>9:41</span><span>5G</span></div>
+      <div class="hdr">
+        <div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+        <div class="logo">PR</div>
+        <div style="flex:1;min-width:0">
+          <div class="title">膝外侧疼，要不要停</div>
+          <div class="sub"><span class="dot"></span>PR · 在线 · 19:22</div>
+        </div>
+        <div class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+      </div>
+
+      <div class="msgs">
+        <div class="daydiv">今天</div>
+
+        <div class="mine">
+          <div class="txt">今天跑了 10 公里，配速 5'20"，但最后 2 公里膝盖外侧有点疼，是不是要停两天？</div>
+        </div>
+
+        <div class="turn">
+          <div class="meta"><b>PR</b><span>19:22</span><span>·</span><span>4 秒</span></div>
+          <div class="body">
+            <p>先别急着停，也别硬撑。膝外侧疼在跑量突然上来时很常见，多数是髂胫束紧张，<em>不是关节伤</em>。</p>
+          </div>
+          <div class="items" id="items">
+            <div class="item on">
+              <span class="tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3L9.5 3.8"/></svg></span>
+              <span class="t">今天剩下的跑量换成快走</span>
+              <span class="tag">今天</span>
+            </div>
+            <div class="item">
+              <span class="tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3L9.5 3.8"/></svg></span>
+              <span class="t">泡沫轴滚髂胫束，每侧 2 分钟</span>
+              <span class="tag">今天</span>
+            </div>
+            <div class="item">
+              <span class="tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3L9.5 3.8"/></svg></span>
+              <span class="t">跑前加一组臀中肌激活</span>
+              <span class="tag">明天</span>
+            </div>
+          </div>
+          <div class="foot">3 条建议 · 已勾 1 条</div>
+        </div>
+
+        <div class="mine">
+          <div class="txt">那我明天还能慢跑吗</div>
+        </div>
+
+        <div class="turn">
+          <div class="meta"><b>PR</b><span>19:23</span><span>·</span><span>6 秒</span></div>
+          <div class="body">
+            <p>可以，但把 10 公里砍到 6 公里，配速放到 6'10"，全程能正常说话为准。跑完冰敷 10 分钟，疼感加重就当天收。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="card">
+          <div class="plus"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+          <div class="ph">和 PR 说点什么…</div>
+          <div class="send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="nav"><p>点右边那三条建议，可以勾掉</p></div>
+
+<script>
+  const box = document.getElementById('items');
+  box.addEventListener('click', (e) => {
+    const it = e.target.closest('.item');
+    if (!it) return;
+    it.classList.toggle('on');
+    const n = box.querySelectorAll('.item.on').length;
+    const foot = box.parentElement.querySelector('.foot');
+    foot.textContent = n === 0 ? '3 条建议 · 还没勾' : `3 条建议 · 已勾 ${n} 条`;
+  });
+</script>
+
+</body>
+</html>

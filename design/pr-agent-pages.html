@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pr-agent · 按 pr-ui 规范重做的页面体系</title>
+<link rel="stylesheet" href="./pr-ui.css" />
+<style>
+  :root { --shell-line: #e6e6e8; }
+  html, body { margin: 0; background: #fbfbfc; color: #111114;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+
+  .page { display: grid; grid-template-columns: 268px 1fr; gap: 48px;
+    max-width: 1060px; margin: 0 auto; padding: 40px 28px 56px; align-items: start; }
+
+  /* ---------- 注解栏 ---------- */
+  .notes h1 { font-size: 15px; font-weight: 500; letter-spacing: -.01em; margin: 0 0 2px; }
+  .notes .sub { font-size: 11px; color: #707072; letter-spacing: .2px; margin-bottom: 22px; }
+  .notes .grp { font-size: 11px; font-weight: 600; color: #545456; margin: 20px 0 8px; }
+  .notes ul { list-style: none; margin: 0; padding: 0; }
+  .notes li { font-size: 12.5px; line-height: 1.65; color: #3f3f42; padding: 5px 0;
+    border-bottom: 1px solid #efeff1; display: flex; gap: 8px; }
+  .notes li:last-child { border-bottom: 0; }
+  .notes li b { font-weight: 500; color: #111114; }
+  .notes li em { font-style: normal; color: #707072; font-size: 11px; display: block; margin-top: 1px; }
+  .notes .num { flex: none; width: 14px; color: #a0a0a8; font-variant-numeric: tabular-nums; font-size: 11px; padding-top: 2px; }
+  .notes .foot { font-size: 11px; line-height: 1.7; color: #707072; margin-top: 24px;
+    padding-top: 12px; border-top: 1px solid #ececee; }
+
+  /* ---------- 舞台 ---------- */
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+  .tabs { display: inline-flex; padding: 3px; gap: 2px; background: #f0f0f2; border-radius: 9px; }
+  .tabs button { appearance: none; border: 0; background: none; cursor: pointer;
+    font: inherit; font-size: 12.5px; color: #545456; padding: 6px 13px; border-radius: 7px;
+    transition: background-color .18s, color .18s; }
+  .tabs button:hover { color: #111114; }
+  .tabs button[aria-selected="true"] { background: #fff; color: #111114;
+    box-shadow: 0 0 0 1px #e0e0e3, 0 1px 3px rgba(0,0,0,.06); }
+
+  .phone { width: 390px; height: 844px; border-radius: 46px; padding: 10px;
+    background: #111114; box-shadow: 0 0 0 1px #2c2c31, 0 24px 60px -20px rgba(0,0,0,.28); }
+  .screen { position: relative; width: 370px; height: 824px; border-radius: 37px;
+    overflow: hidden; background: #fff; color: #111114; }
+
+  /* ---------- 视图骨架 ---------- */
+  .view { position: absolute; inset: 0; display: none; flex-direction: column; }
+  .view.on { display: flex; }
+  .hd { flex: none; display: flex; align-items: center; gap: 10px;
+    height: 56px; padding: 0 14px; border-bottom: 1px solid #ececee; z-index: 3; }
+  .bd { flex: 1; overflow-y: auto; padding: 16px 18px 24px; scrollbar-width: none; }
+  .bd::-webkit-scrollbar { display: none; }
+  .ft { flex: none; padding: 8px 14px 16px; border-top: 1px solid #ececee; }
+
+  .hd .ttl { font-size: 14px; font-weight: 500; letter-spacing: -.01em; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ic { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+    border-radius: 7px; color: #545456; flex: none; }
+  .ic:active { background: #f0f0f2; }
+  .logo { width: 24px; height: 24px; border-radius: 7px; background: #fff;
+    border: 1px solid #e0e0e3; display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; letter-spacing: -.02em; flex: none; }
+
+  /* ---------- 对话 ---------- */
+  .msg + .msg { margin-top: 18px; }
+  .ai .meta { margin-bottom: 6px; }
+  .ai .pr-body + .pr-body { margin-top: 10px; }
+  .pr-checks { margin-top: 12px; }
+  .count { margin-top: 8px; }
+
+  /* ---------- 记录 ---------- */
+  .wk { display: flex; align-items: flex-end; gap: 6px; height: 58px; margin: 2px 0 6px; }
+  .wk i { flex: 1; border-radius: 2px 2px 0 0; background: #111114; opacity: .16; }
+  .wk i.on { background: #a3e635; opacity: 1; }
+  .wk-x { display: flex; gap: 6px; }
+  .wk-x span { flex: 1; text-align: center; font-size: 10px; color: #707072; }
+  .sum { display: flex; align-items: baseline; gap: 6px; }
+  .sum b { font-size: 22px; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .sum span { font-size: 11px; color: #707072; }
+  .grp { font-size: 11px; font-weight: 600; color: #545456; margin: 22px 0 2px; }
+  .rowdot { width: 26px; height: 26px; border-radius: 8px; background: #f4f4f5;
+    display: flex; align-items: center; justify-content: center; font-size: 10px;
+    font-weight: 600; color: #545456; flex: none; margin-top: 1px; }
+  .rowdot.accent { background: #a3e635; color: #1a2e05; }
+
+  /* ---------- 详情 ---------- */
+  .kpis { display: flex; gap: 26px; padding: 2px 0 16px; }
+  .kpis .pr-kpi { font-size: 24px; }
+  .seg { margin-top: 2px; }
+  .seg caption { text-align: left; font-size: 11px; font-weight: 600; color: #545456; padding-bottom: 8px; }
+  .quote { margin-top: 16px; }
+  .talk { display: flex; align-items: center; justify-content: space-between; width: 100%;
+    padding: 12px 0; background: none; border: 0; border-top: 1px solid #ececee;
+    font: inherit; font-size: 13px; color: #111114; cursor: pointer; }
+  .talk span:last-child { color: #707072; font-size: 11px; }
+
+  /* ---------- 设置 ---------- */
+  .set-row { display: flex; align-items: center; gap: 12px; width: 100%;
+    padding: 11px 0; border: 0; border-bottom: 1px solid #ececee; background: none;
+    font: inherit; text-align: left; cursor: pointer; color: #111114; }
+  .set-row:last-child { border-bottom: 0; }
+  .set-row .k { flex: 1; font-size: 13.5px; line-height: 1.5; }
+  .set-row .k em { font-style: normal; display: block; font-size: 11px; color: #707072; margin-top: 1px; }
+  .set-row .v { font-size: 12.5px; color: #707072; }
+  .sw { flex: none; width: 36px; height: 20px; border-radius: 9999px; background: #e0e0e3;
+    position: relative; transition: background-color .2s; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+    transition: transform .22s cubic-bezier(.16,1,.3,1); }
+  .sw.on { background: #111114; }
+  .sw.on::after { transform: translateX(16px); }
+  .danger .k { color: #d92d20; }
+  .ver { text-align: center; }
+
+  @media (max-width: 820px) {
+    .page { grid-template-columns: 1fr; gap: 28px; padding: 24px 16px 40px; }
+    .notes { order: 2; }
+    .stage { order: 1; }
+    .phone { transform: scale(.92); transform-origin: top center; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <aside class="notes">
+    <h1>pr-agent · 页面体系</h1>
+    <div class="sub">一套 token · 四个形态 · 每屏彩色 ≤ 1 处</div>
+
+    <div class="grp">这一版用到什么</div>
+    <ul>
+      <li><span class="num">1</span><div><b>AI 回复裸文本</b><em>只留 11px 元信息，面积最大的色块让给内容</em></div></li>
+      <li><span class="num">2</span><div><b>建议 = 可勾选条目</b><em>形状 + 亮度 + 颜色四重信号，灰度下也成立</em></div></li>
+      <li><span class="num">3</span><div><b>列表用线不用卡片</b><em>行 12px padding + 1px 底边，一屏 8 条而不是 4 条</em></div></li>
+      <li><span class="num">4</span><div><b>表格去竖线</b><em>数字右对齐 + tabular-nums，可纵向比大小</em></div></li>
+      <li><span class="num">5</span><div><b>图表不用彩色图例</b><em>六根墨色 + 一根强调色，强调的那根是“本周”</em></div></li>
+      <li><span class="num">6</span><div><b>表单 / 设置分组</b><em>标签顶置、开关用正向措辞、危险区隔离</em></div></li>
+      <li><span class="num">7</span><div><b>空态给下一步</b><em>“更早的记录”只在这里出现一次，一句话 + 一个动作</em></div></li>
+    </ul>
+
+    <div class="grp">字段来自真实表</div>
+    <ul>
+      <li><span class="num"></span><div>activities<em>distance / average_pace / average_heart_rate</em></div></li>
+      <li><span class="num"></span><div>splits<em>kilometer / pace / average_heart_rate</em></div></li>
+      <li><span class="num"></span><div>activity_reviews<em>kind / status / features_json</em></div></li>
+    </ul>
+
+    <div class="foot">样例数值是编的，字段与结构是真的。<br>
+    点上方切换四个页面，手机里的建议条目可以点。</div>
+  </aside>
+
+  <main class="stage">
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-go="chat">对话</button>
+      <button role="tab" aria-selected="false" data-go="log">记录</button>
+      <button role="tab" aria-selected="false" data-go="detail">详情</button>
+      <button role="tab" aria-selected="false" data-go="settings">设置</button>
+    </div>
+
+    <div class="phone">
+      <div class="screen pr-ui">
+
+        <!-- ================= 对话 ================= -->
+        <section class="view on" data-view="chat">
+          <header class="hd pr-glass">
+            <div class="ic">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+            </div>
+            <div class="logo">PR</div>
+            <div class="ttl">
+              <div>膝外侧疼，要不要停</div>
+              <div class="pr-meta" style="display:flex;align-items:center;gap:5px;margin-top:1px">
+                <span class="pr-status-dot"></span>PR · 你的运动伙伴
+              </div>
+            </div>
+            <div class="ic">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+          </header>
+
+          <div class="bd pr-enter">
+            <div class="msg">
+              <div class="pr-user-msg">今天跑了 10 公里，配速 5'20"，但最后 2 公里膝盖外侧有点疼，是不是要停两天？</div>
+            </div>
+
+            <div class="msg ai">
+              <div class="pr-meta meta">PR · 已思考 4 秒</div>
+              <div class="pr-body">先别急着停，也别硬撑。膝外侧疼在跑量突然上来时很常见，多数是髂胫束紧张，<strong>不是关节伤</strong>。</div>
+              <div class="pr-body">这周你比上周多了 16 公里，量上得太快。接下来三天这样：</div>
+              <div class="pr-checks">
+                <button class="pr-check" aria-pressed="true">
+                  <span class="pr-tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 4.8 8.5 9.5 3.8"/></svg></span>
+                  <span>今天剩下的跑量换成快走</span>
+                </button>
+                <button class="pr-check" aria-pressed="false">
+                  <span class="pr-tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 4.8 8.5 9.5 3.8"/></svg></span>
+                  <span>泡沫轴滚髂胫束，每侧 2 分钟</span>
+                </button>
+                <button class="pr-check" aria-pressed="false">
+                  <span class="pr-tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 4.8 8.5 9.5 3.8"/></svg></span>
+                  <span>跑前加一组臀中肌激活</span>
+                </button>
+              </div>
+              <div class="pr-meta count" data-count>3 条建议 · 已勾 1 条</div>
+            </div>
+
+            <div class="msg">
+              <div class="pr-user-msg">那我明天还能慢跑吗</div>
+            </div>
+
+            <div class="msg ai">
+              <div class="pr-meta meta">PR · 已思考 2 秒</div>
+              <div class="pr-body">可以，但把 10 公里砍到 6 公里，配速放到 6'10"，全程能正常说话为准。</div>
+              <div class="pr-body">跑完立刻冰敷 10 分钟。中途疼感加重就当天收，别等跑完。</div>
+            </div>
+          </div>
+
+          <footer class="ft">
+            <div class="pr-field" style="display:flex;align-items:center;gap:8px;padding:7px 8px 7px 10px">
+              <span style="color:#707072;font-size:17px;line-height:1">+</span>
+              <span style="flex:1;font-size:14px;color:#707072">和 PR 说点什么…</span>
+              <span style="width:28px;height:28px;border-radius:8px;background:#111114;color:#fff;
+                display:flex;align-items:center;justify-content:center;font-size:13px">↑</span>
+            </div>
+          </footer>
+        </section>
+
+        <!-- ================= 记录 ================= -->
+        <section class="view" data-view="log">
+          <header class="hd pr-glass">
+            <div class="ttl">训练记录</div>
+            <div class="ic">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+            </div>
+          </header>
+
+          <div class="bd">
+            <div class="sum"><b>42.6</b><span>公里 · 本周 4 次</span></div>
+
+            <div class="wk" aria-hidden="true">
+              <i style="height:6%"></i><i style="height:34%"></i><i style="height:12%"></i>
+              <i style="height:56%"></i><i style="height:20%"></i><i style="height:72%"></i>
+              <i class="on" style="height:100%"></i>
+            </div>
+            <div class="wk-x pr-meta"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+
+            <div class="grp">本周</div>
+            <div class="pr-list">
+              <button class="pr-row">
+                <span class="rowdot accent">跑</span>
+                <span class="pr-row-main">
+                  <span class="pr-body">晨跑 10 公里</span>
+                  <span class="pr-sub">配速 6'12" · 心率 138 · 髂胫束轻微不适</span>
+                </span>
+                <span class="pr-row-end"><span class="pr-meta">今天</span></span>
+              </button>
+              <button class="pr-row">
+                <span class="rowdot">跑</span>
+                <span class="pr-row-main">
+                  <span class="pr-body">间歇 6×800m</span>
+                  <span class="pr-sub">配速 4'48" · 心率 172 · 完成 5 组</span>
+                </span>
+                <span class="pr-row-end"><span class="pr-meta">11-02</span></span>
+              </button>
+              <button class="pr-row">
+                <span class="rowdot">跑</span>
+                <span class="pr-row-main">
+                  <span class="pr-body">轻松跑 10 公里</span>
+                  <span class="pr-sub">配速 6'30" · 心率 132 · 全程有氧</span>
+                </span>
+                <span class="pr-row-end"><span class="pr-meta">11-01</span></span>
+              </button>
+              <button class="pr-row">
+                <span class="rowdot">骑</span>
+                <span class="pr-row-main">
+                  <span class="pr-body">恢复骑行 12.6 公里</span>
+                  <span class="pr-sub">心率 108 · 腿部放松</span>
+                </span>
+                <span class="pr-row-end"><span class="pr-meta">11-01</span></span>
+              </button>
+            </div>
+
+            <div class="grp">上周</div>
+            <div class="pr-list">
+              <button class="pr-row">
+                <span class="rowdot">跑</span>
+                <span class="pr-row-main">
+                  <span class="pr-body">长距离 18 公里</span>
+                  <span class="pr-sub">配速 6'10" · 心率 146 · 心率漂移 +6</span>
+                </span>
+                <span class="pr-row-end"><span class="pr-meta">10-28</span></span>
+              </button>
+              <button class="pr-row">
+                <span class="rowdot">跑</span>
+                <span class="pr-row-main">
+                  <span class="pr-body">轻松跑 8 公里</span>
+                  <span class="pr-sub">配速 6'40" · 心率 128</span>
+                </span>
+                <span class="pr-row-end"><span class="pr-meta">10-26</span></span>
+              </button>
+            </div>
+
+            <div class="pr-empty" style="padding:32px 0 8px">
+              <span class="pr-empty-line">更早的记录还没有同步</span>
+              <span>连上 Strava 或手动补一条，趋势才连得起来。</span>
+              <button class="pr-btn">连接数据源</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= 详情 ================= -->
+        <section class="view" data-view="detail">
+          <header class="hd pr-glass">
+            <div class="ic">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+            </div>
+            <div class="ttl">
+              <div>晨跑 10 公里</div>
+              <div class="pr-meta">11月4日 07:12 · 42 分钟</div>
+            </div>
+          </header>
+
+          <div class="bd">
+            <div class="kpis">
+              <div><div class="pr-kpi">10.0</div><div class="pr-kpi-label">公里</div></div>
+              <div><div class="pr-kpi">6'12"</div><div class="pr-kpi-label">平均配速</div></div>
+              <div><div class="pr-kpi">138</div><div class="pr-kpi-label">平均心率</div></div>
+            </div>
+
+            <table class="pr-table seg">
+              <caption>分段</caption>
+              <thead><tr><th>公里</th><th class="is-num">配速</th><th class="is-num">心率</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td class="is-num">6'24"</td><td class="is-num">126</td></tr>
+                <tr><td>2</td><td class="is-num">6'18"</td><td class="is-num">132</td></tr>
+                <tr><td>3</td><td class="is-num">6'10"</td><td class="is-num">136</td></tr>
+                <tr><td>4</td><td class="is-num">6'06"</td><td class="is-num">140</td></tr>
+                <tr><td>5</td><td class="is-num">6'02"</td><td class="is-num">144</td></tr>
+                <tr><td>6</td><td class="is-num">5'58"</td><td class="is-num">149</td></tr>
+                <tr><td>7</td><td class="is-num">6'01"</td><td class="is-num">151</td></tr>
+                <tr><td>8</td><td class="is-num">6'14"</td><td class="is-num">146</td></tr>
+                <tr><td>9</td><td class="is-num">6'22"</td><td class="is-num">141</td></tr>
+                <tr><td>10</td><td class="is-num">6'40"</td><td class="is-num">137</td></tr>
+              </tbody>
+            </table>
+
+            <div class="quote">
+              <div class="pr-meta">PR · 今天 07:20</div>
+              <div class="pr-body" style="margin-top:6px">前 7 公里配速一路往上走，第 9 公里开始掉，第 10 公里掉了 48 秒——这是配速分配的问题，不是体能问题。下次按 6'20" 起步，最后两公里再放。</div>
+              <div class="pr-checks">
+                <button class="pr-check" aria-pressed="false">
+                  <span class="pr-tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 4.8 8.5 9.5 3.8"/></svg></span>
+                  <span>下次按 6'20" 起步</span>
+                </button>
+                <button class="pr-check" aria-pressed="false">
+                  <span class="pr-tick"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="#1a2e05" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 4.8 8.5 9.5 3.8"/></svg></span>
+                  <span>滚髂胫束，每侧 2 分钟</span>
+                </button>
+              </div>
+              <div class="pr-meta count" data-count>2 条建议 · 已勾 0 条</div>
+            </div>
+
+            <button class="talk" style="margin-top:18px">
+              <span>和 PR 聊聊这次</span>
+              <span>3 条相关记录 ›</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ================= 设置 ================= -->
+        <section class="view" data-view="settings">
+          <header class="hd pr-glass">
+            <div class="ttl">设置</div>
+          </header>
+
+          <div class="bd">
+            <div class="grp" style="margin-top:2px">账号</div>
+            <button class="set-row">
+              <span class="k">林一<em>linyi@example.com</em></span>
+              <span class="v">个人资料</span>
+            </button>
+            <button class="set-row">
+              <span class="k">数据源<em>Strava · 2 小时前同步</em></span>
+              <span class="pr-tag">已连接</span>
+            </button>
+
+            <div class="grp">提醒</div>
+            <div class="set-row">
+              <span class="k">每周训练汇总<em>周日晚上发一次</em></span>
+              <span class="sw on"></span>
+            </div>
+            <div class="set-row">
+              <span class="k">跑后主动点评<em>完成记录后 PR 先说一句</em></span>
+              <span class="sw on"></span>
+            </div>
+            <div class="set-row">
+              <span class="k">强度过高时提醒<em>连续三天高于上周均值</em></span>
+              <span class="sw"></span>
+            </div>
+
+            <div class="grp">数据</div>
+            <button class="set-row">
+              <span class="k">导出全部记录<em>CSV · 含分段</em></span>
+              <span class="v">导出</span>
+            </button>
+            <button class="set-row">
+              <span class="k">PR 记住了什么</span>
+              <span class="v">查看 ›</span>
+            </button>
+
+            <div class="grp">危险</div>
+            <button class="set-row danger">
+              <span class="k">删除账号与全部记录<em>不可恢复</em></span>
+              <span class="v">删除</span>
+            </button>
+
+            <div class="pr-meta ver" style="margin-top:28px">pr-agent · v1.4.2</div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const tabs = [...document.querySelectorAll('.tabs button')]
+  const views = [...document.querySelectorAll('.view')]
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-selected', String(x === t)))
+    views.forEach(v => v.classList.toggle('on', v.dataset.view === t.dataset.go))
+  }))
+
+  // 勾选:形状 + 计数,不靠颜色单独表意
+  document.querySelectorAll('.pr-check').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true')
+      const block = btn.closest('.msg, .quote')
+      const list = block.querySelectorAll('.pr-check')
+      const done = [...list].filter(b => b.getAttribute('aria-pressed') === 'true').length
+      const out = block.querySelector('[data-count]')
+      if (out) out.textContent = `${list.length} 条建议 · 已勾 ${done} 条`
+    })
+  })
+</script>
+</body>
+</html>

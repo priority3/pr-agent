@@ -28,7 +28,6 @@ interface Props {
 export default function Composer(props: Props) {
   const { containerRef, textareaRef, input, sending, uploading, canSend, disabled, pendingImageUrl } = props
   const [attachOpen, setAttachOpen] = useState(false)
-  const [inputFocused, setInputFocused] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
 
@@ -77,11 +76,11 @@ export default function Composer(props: Props) {
       )}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pick} />
-      <div className="pr-composer flex flex-col rounded-[26px]" style={inputFocused ? { borderColor: 'var(--pr-accent)', boxShadow: '0 0 0 3px rgba(163,230,53,.18)' } : undefined}>
+      <div className="pr-composer flex flex-col rounded-[14px]">
         {pendingImageUrl && (
           <div className="flex px-3 pt-3">
             <div className="pr-pop relative">
-              <AuthImage url={pendingImageUrl} token={props.token} alt="待发送" className="h-16 w-16 rounded-xl object-cover" />
+              <AuthImage url={pendingImageUrl} token={props.token} alt="待发送" className="h-16 w-16 rounded-[8px] object-cover" />
               <button type="button" onClick={props.onClearImage} className="pr-tap absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full" style={{ background: 'var(--pr-user-bg)', color: 'var(--pr-user-text)' }} aria-label="移除图片">
                 <CloseIcon size={11} />
               </button>
@@ -94,7 +93,7 @@ export default function Composer(props: Props) {
               type="button"
               onClick={() => setAttachOpen(open => !open)}
               disabled={uploading || sending || disabled}
-              className={`pr-tap pr-plus flex h-9 w-9 items-center justify-center rounded-full disabled:opacity-40 ${attachOpen ? 'pr-plus-open' : ''}`}
+              className={`pr-tap pr-plus flex h-[26px] w-[26px] items-center justify-center rounded-[7px] disabled:opacity-40 ${attachOpen ? 'pr-plus-open' : ''}`}
               style={{ color: 'var(--pr-text-2)' }}
               aria-label="添加图片"
             >
@@ -116,23 +115,21 @@ export default function Composer(props: Props) {
             value={input}
             onChange={e => { props.onInputChange(e.target.value); autoGrow(e.target) }}
             onKeyDown={onKeyDown}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
             rows={1}
             disabled={disabled}
             placeholder={disabled ? '访问已失效' : '和 PR 说点什么…'}
-            className="pr-input pr-scroll max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[15px] outline-none disabled:opacity-50"
+            className="pr-input pr-scroll max-h-32 min-h-[30px] flex-1 resize-none bg-transparent px-1.5 py-1 text-[14px] outline-none disabled:opacity-50"
             style={{ color: 'var(--pr-text)' }}
           />
           <button
             type="button"
             onClick={() => (sending ? props.onStop() : props.onSubmit())}
             disabled={!sending && !canSend}
-            className="pr-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-            style={{ background: 'var(--pr-accent)', color: 'var(--pr-accent-ink)' }}
+            className="pr-send flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px]"
+            style={{ background: 'var(--pr-text)', color: 'var(--pr-bg)' }}
             aria-label={sending ? '停止' : '发送'}
           >
-            {sending ? <StopIcon size={18} /> : <SendIcon size={18} />}
+            {sending ? <StopIcon size={15} /> : <SendIcon size={15} />}
           </button>
         </div>
       </div>

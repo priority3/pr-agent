@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 import AuthImage from './AuthImage'
+import Checklist from './Checklist'
+import { splitChecklist } from './tasklist'
 import { copyText } from './helpers'
-import { CheckIcon, CopyIcon, PrAvatar, Spinner } from './icons'
+import { CheckIcon, CopyIcon, Spinner } from './icons'
 import MarkdownText from './MarkdownText'
 import type { HistoryState, Msg } from './types'
 
@@ -25,7 +27,13 @@ interface Props {
   onReloadHistory: () => void
 }
 
-/** 消息区内容:三态(骨架 / 加载失败 / 就绪)+ 气泡列表 + 等待中的三点。 */
+/**
+ * 消息区内容:三态(骨架 / 加载失败 / 就绪)+ 回复列表 + 等待中的三点。
+ *
+ * 排版原则(2026-11 改版):**不画气泡**。AI 回复直接落在白底上,靠一行 11px 元信息
+ * (PR · 已思考 N 秒)与 14px / 1.78 的正文建立层级;用户消息降为右侧浅灰小卡。
+ * 原来那条 #f1f1f3 大气泡是整屏面积最大的色块,视线先看到「一个气泡」而不是内容本身。
+ */
 export default function MessageList(props: Props) {
   const { messages, historyState, sending, staggerCount, threadKey, token } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -59,7 +67,7 @@ export default function MessageList(props: Props) {
     <>
       {messages.length === 0 && !sending && <Welcome />}
 
-      <div key={threadKey} className="pr-thread-in flex flex-col gap-2.5">
+      <div key={threadKey} className="pr-thread-in flex flex-col gap-[18px]">
         {messages.map((m, i) => {
           const delay = i < staggerCount ? `${Math.min(i * 36, 288)}ms` : '0ms'
           if (m.role === 'user') {
@@ -67,18 +75,18 @@ export default function MessageList(props: Props) {
             return (
               <div key={m.id} className="pr-msg flex flex-col items-end" style={{ animationDelay: delay }}>
                 <div
-                  className="max-w-[80%] overflow-hidden"
+                  className="max-w-[78%] overflow-hidden"
                   style={{
-                    background: 'var(--pr-user-bg)',
-                    color: 'var(--pr-user-text)',
-                    borderRadius: '18px 18px 6px 18px',
+                    background: 'var(--pr-user-card)',
+                    color: 'var(--pr-text)',
+                    borderRadius: 12,
                     border: failed ? '1px solid var(--pr-danger)' : undefined,
                     opacity: failed ? 0.75 : 1,
                   }}
                 >
                   {m.imageUrl && <AuthImage url={m.imageUrl} token={token} alt="图片" className="block max-h-72 w-full object-cover" />}
                   {m.content && m.content !== '[图片]' && (
-                    <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[15px] leading-relaxed">{m.content}</div>
+                    <div className="whitespace-pre-wrap break-words px-3 py-2 text-[14px] leading-[1.65]">{m.content}</div>
                   )}
                 </div>
                 {failed && (
@@ -98,82 +106,75 @@ export default function MessageList(props: Props) {
             )
           }
 
-          // 连续的 PR 消息只在第一条带头像(iMessage 式分组),后续用占位对齐
-          const firstOfGroup = i === 0 || messages[i - 1].role === 'user'
           // 思考展示:流式且正文未开始 → 实时暗色滚动;否则收起成「已思考 Ns」胶囊(点击展开)
           const thinkingLive = Boolean(m.streaming && m.thinking && !m.content)
           const copyable = !m.streaming && !m.error && m.content.length > 0 && m.content !== '[图片]'
-          // Reason: 气泡里所有内容都是条件渲染,一条「流已结束但正文/思考/图片全空」的消息
-          // 会渲染成零高度的空 div —— 生产实测过这种静默失败(服务端答了并落库、界面什么都没有,
-          // 也没有 loading 和重试)。这里把它显性化,并给一键重拉历史。
+          // Reason: 一条「流已结束但正文/思考/图片全空」的消息会渲染成零高度 —— 生产实测过
+          // 这种静默失败(服务端答了并落库、界面什么都没有)。这里把它显性化,并给一键重拉历史。
           const blank = !m.streaming && !m.content && !m.thinking && !m.imageUrl
+          const segments = m.content && m.content !== '[图片]' ? splitChecklist(m.content) : []
+
           return (
-            <div key={m.id} className="pr-msg flex items-end gap-2" style={{ animationDelay: delay }}>
-              {firstOfGroup ? <PrAvatar /> : <div className="w-7 shrink-0" />}
-              <div
-                className="max-w-[80%] overflow-hidden"
-                style={{
-                  background: m.error ? 'var(--pr-danger-bg)' : 'var(--pr-ai-bg)',
-                  color: m.error ? 'var(--pr-danger)' : 'var(--pr-ai-text)',
-                  borderRadius: '18px 18px 18px 6px',
-                }}
-              >
-                {m.imageUrl && <AuthImage url={m.imageUrl} token={token} alt="图片" className="block max-h-72 w-full object-cover" />}
-                {thinkingLive && (
-                  <div className="whitespace-pre-wrap break-words px-3.5 py-2.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--pr-muted)' }}>
-                    {m.thinking}
-                  </div>
-                )}
-                {!thinkingLive && m.thinking && (
+            <div key={m.id} className="pr-msg" style={{ animationDelay: delay }}>
+              <div className="pr-meta mb-2 flex items-center gap-2 text-[11px]" style={{ color: 'var(--pr-muted)' }}>
+                <span style={{ fontWeight: 500, color: m.error ? 'var(--pr-danger)' : 'var(--pr-text-2)' }}>PR</span>
+                {m.streaming ? (
+                  <span className="flex items-center gap-1.5">
+                    {m.toolNote ? <><Spinner size={11} />{m.toolNote}</> : '正在回复'}
+                  </span>
+                ) : m.thinking ? (
+                  <button type="button" onClick={() => props.onToggleThinking(m.id)} className="pr-tap flex items-center gap-1" style={{ color: 'var(--pr-muted)' }}>
+                    已思考 {m.thinkingSeconds ?? 1} 秒
+                    <span style={{ fontSize: 8 }}>{m.thinkingOpen ? '▲' : '▼'}</span>
+                  </button>
+                ) : null}
+                {copyable && (
                   <button
                     type="button"
-                    onClick={() => props.onToggleThinking(m.id)}
-                    className="pr-tap flex items-center gap-1 px-3.5 pt-2.5 text-[12px]"
-                    style={{ color: 'var(--pr-muted)' }}
+                    onClick={() => void onCopy(m)}
+                    className="pr-tap pr-copy ml-auto shrink-0 p-1"
+                    aria-label={copiedId === m.id ? '已复制' : '复制回复'}
                   >
-                    已思考 {m.thinkingSeconds ?? 1} 秒
-                    <span style={{ fontSize: 9 }}>{m.thinkingOpen ? '▲' : '▼'}</span>
+                    {copiedId === m.id ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
                   </button>
                 )}
-                {!thinkingLive && m.thinking && m.thinkingOpen && (
-                  <div className="whitespace-pre-wrap break-words px-3.5 pt-1.5 text-[12.5px] leading-relaxed" style={{ color: 'var(--pr-muted)' }}>
-                    {m.thinking}
-                  </div>
-                )}
-                {m.toolNote && m.streaming && (
-                  <div className="flex items-center gap-1.5 px-3.5 pt-2 text-[12px]" style={{ color: 'var(--pr-muted)' }}>
-                    <Spinner size={12} />
-                    {m.toolNote}
-                  </div>
-                )}
-                {m.content && m.content !== '[图片]' && (
-                  <div className="pr-markdown break-words px-3.5 py-2.5 text-[15px] leading-relaxed">
-                    <MarkdownText messageId={m.id} streaming={m.streaming} isDark={isDark}>{m.content}</MarkdownText>
-                  </div>
-                )}
-                {blank && (
-                  <div className="flex flex-wrap items-center gap-2 px-3.5 py-2.5 text-[13px]" style={{ color: 'var(--pr-muted)' }}>
-                    <span>这条没收到内容</span>
-                    <button
-                      type="button"
-                      onClick={props.onReloadHistory}
-                      className="pr-tap rounded-full px-2 py-0.5 text-[12px]"
-                      style={{ border: '1px solid var(--pr-line-strong)', color: 'var(--pr-text-2)' }}
-                    >
-                      重新载入
-                    </button>
-                  </div>
-                )}
               </div>
-              {copyable && (
-                <button
-                  type="button"
-                  onClick={() => void onCopy(m)}
-                  className="pr-tap pr-copy mb-1 shrink-0 p-1"
-                  aria-label={copiedId === m.id ? '已复制' : '复制回复'}
-                >
-                  {copiedId === m.id ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-                </button>
+
+              {m.imageUrl && <AuthImage url={m.imageUrl} token={token} alt="图片" className="mb-2 block max-h-72 rounded-lg object-cover" />}
+
+              {thinkingLive && (
+                <div className="whitespace-pre-wrap break-words border-l pl-2.5 text-[12px] leading-[1.75]" style={{ borderColor: 'var(--pr-line-strong)', color: 'var(--pr-muted)' }}>
+                  {m.thinking}
+                </div>
+              )}
+              {!thinkingLive && m.thinking && m.thinkingOpen && (
+                <div className="mb-2 whitespace-pre-wrap break-words border-l pl-2.5 text-[12px] leading-[1.75]" style={{ borderColor: 'var(--pr-line-strong)', color: 'var(--pr-muted)' }}>
+                  {m.thinking}
+                </div>
+              )}
+
+              {segments.map((seg, k) =>
+                seg.kind === 'md' ? (
+                  <div key={`md-${k}`} className="pr-markdown break-words text-[14px] leading-[1.78]" style={{ color: m.error ? 'var(--pr-danger)' : 'var(--pr-text)' }}>
+                    <MarkdownText messageId={m.id} streaming={m.streaming} isDark={isDark}>{seg.text}</MarkdownText>
+                  </div>
+                ) : (
+                  <Checklist key={`list-${k}`} items={seg.items} />
+                ),
+              )}
+
+              {blank && (
+                <div className="flex flex-wrap items-center gap-2 text-[13px]" style={{ color: 'var(--pr-muted)' }}>
+                  <span>这条没收到内容</span>
+                  <button
+                    type="button"
+                    onClick={props.onReloadHistory}
+                    className="pr-tap rounded-full px-2 py-0.5 text-[12px]"
+                    style={{ border: '1px solid var(--pr-line-strong)', color: 'var(--pr-text-2)' }}
+                  >
+                    重新载入
+                  </button>
+                </div>
               )}
             </div>
           )
@@ -184,11 +185,11 @@ export default function MessageList(props: Props) {
 
         {/* 三点 loading 只显示到首个流式事件到达(之后由思考/正文接管) */}
         {sending && !(messages[messages.length - 1]?.role === 'assistant' && messages[messages.length - 1]?.streaming) && (
-          <div className="pr-msg flex items-end gap-2">
-            <PrAvatar />
-            <div className="flex items-center gap-1.5 px-4 py-3.5" style={{ background: 'var(--pr-ai-bg)', borderRadius: '18px 18px 18px 6px' }}>
+          <div className="pr-msg flex items-center gap-2 text-[11px]" style={{ color: 'var(--pr-muted)' }}>
+            <span style={{ fontWeight: 500, color: 'var(--pr-text-2)' }}>PR</span>
+            <span className="flex items-center gap-1">
               <span className="pr-dot" /><span className="pr-dot" /><span className="pr-dot" />
-            </div>
+            </span>
           </div>
         )}
       </div>
@@ -203,14 +204,14 @@ export default function MessageList(props: Props) {
 function ReplyWait({ state, onReload }: { state: 'waiting' | 'timeout'; onReload: () => void }) {
   if (state === 'waiting') {
     return (
-      <div className="flex items-center gap-2 pl-9 text-[12px]" style={{ color: 'var(--pr-muted)' }} aria-live="polite">
+      <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--pr-muted)' }} aria-live="polite">
         <span className="pr-dot-solid pr-pulse" style={{ background: 'var(--pr-muted)' }} />
         PR 可能还在想(有时要半分钟以上),回复到了会自动出现
       </div>
     )
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 pl-9 text-[12px]" style={{ color: 'var(--pr-muted)' }} aria-live="polite">
+    <div className="flex flex-wrap items-center gap-2 text-[12px]" style={{ color: 'var(--pr-muted)' }} aria-live="polite">
       <span>还没等到回复</span>
       <button
         type="button"
@@ -239,19 +240,16 @@ function Welcome() {
 
 function HistorySkeleton() {
   const rows = [
-    { mine: false, w: '66%', h: 64 },
-    { mine: true, w: '48%', h: 40 },
-    { mine: false, w: '74%', h: 88 },
+    { mine: false, w: '72%', h: 56 },
+    { mine: true, w: '46%', h: 34 },
+    { mine: false, w: '80%', h: 80 },
   ]
   return (
-    <div className="flex flex-col gap-2.5" aria-busy="true" aria-label="正在加载历史消息">
+    <div className="flex flex-col gap-[18px]" aria-busy="true" aria-label="正在加载历史消息">
       {rows.map((r, i) => (
-        <div key={i} className={r.mine ? 'flex justify-end' : 'flex items-end gap-2'}>
-          {!r.mine && <div className="pr-skel h-7 w-7 shrink-0 rounded-full" />}
-          <div
-            className="pr-skel"
-            style={{ width: r.w, height: r.h, borderRadius: r.mine ? '18px 18px 6px 18px' : '18px 18px 18px 6px' }}
-          />
+        <div key={i} className={r.mine ? 'flex justify-end' : 'flex flex-col gap-2'}>
+          {!r.mine && <div className="pr-skel" style={{ width: 42, height: 8, borderRadius: 4 }} />}
+          <div className="pr-skel" style={{ width: r.w, height: r.h, borderRadius: r.mine ? 12 : 6 }} />
         </div>
       ))}
     </div>

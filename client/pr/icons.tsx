@@ -49,11 +49,3 @@ export const Spinner = ({ size = 20, className }: IconProps) => (
   <svg {...svgBase(size)} className={`pr-spin ${className ?? ''}`} aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56" /></svg>
 )
 
-/* PR 头像:白底圆形 + 黑色 logo,深浅色下都清晰 */
-export function PrAvatar() {
-  return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
-      <img src="/pr-logo.png" alt="PR" style={{ width: 18, height: 18 }} />
-    </div>
-  )
-}

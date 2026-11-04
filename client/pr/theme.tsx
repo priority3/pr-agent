@@ -7,6 +7,8 @@ export function PrThemeStyle() {
   --pr-bg:#ffffff; --pr-text:#111114; --pr-text-2:#6b6b72;
   --pr-muted:#a3a3ac; --pr-line:#ececee; --pr-line-strong:#e0e0e3;
   --pr-ai-bg:#f1f1f3; --pr-ai-text:#111114; --pr-user-bg:#141417; --pr-user-text:#f7f7f8;
+  /* 改版后:AI 回复不再用气泡底色,用户消息降为浅灰小卡(见 MessageList 顶部说明) */
+  --pr-user-card:#f4f4f5;
   --pr-accent:#a3e635; --pr-accent-ink:#1a2e05; --pr-sel:#f0f0f2;
   --pr-danger:#d92d20; --pr-danger-bg:rgba(217,45,32,.08);
   --pr-glass:rgba(255,255,255,.78);
@@ -23,6 +25,7 @@ export function PrThemeStyle() {
     --pr-bg:#0b0b0d; --pr-text:#f2f2f4; --pr-text-2:#a0a0a8;
     --pr-muted:#6b6b73; --pr-line:#232327; --pr-line-strong:#2c2c31;
     --pr-ai-bg:#1c1c20; --pr-ai-text:#f2f2f4; --pr-user-bg:#ededf0; --pr-user-text:#141417;
+    --pr-user-card:#1e1e23;
     --pr-accent:#a3e635; --pr-accent-ink:#16240a; --pr-sel:#1c1c20;
     --pr-danger:#ff6b63; --pr-danger-bg:rgba(255,107,99,.12);
     --pr-glass:rgba(11,11,13,.72);
@@ -45,7 +48,9 @@ export function PrThemeStyle() {
 .pr .pr-markdown .paragraph-node:first-child,.pr .pr-markdown .heading-node:first-child,.pr .pr-markdown .list-node:first-child{margin-top:0}
 .pr .pr-markdown .paragraph-node:last-child,.pr .pr-markdown .heading-node:last-child,.pr .pr-markdown .list-node:last-child{margin-bottom:0}
 .pr .pr-markdown .inline-code{background:var(--pr-bg);color:inherit}
-.pr .pr-composer{background:var(--pr-sel);border:1px solid var(--pr-line);transition:border-color .25s,box-shadow .25s}
+.pr .pr-composer{background:var(--pr-bg);border:1px solid var(--pr-line);transition:border-color .2s}
+/* 聚焦不发绿光:只把描边压深一格。绿色留给状态与勾选,不当焦点装饰用 */
+.pr .pr-composer:focus-within{border-color:var(--pr-text-2)}
 .pr .pr-plus{transition:transform .3s var(--pr-spring),opacity .18s}
 .pr .pr-plus-open{transform:rotate(45deg)}
 .pr .pr-plus-open:active{transform:rotate(45deg) scale(.9)}
@@ -65,7 +70,16 @@ export function PrThemeStyle() {
 .pr .pr-dot:nth-child(3){animation-delay:.3s}
 @keyframes prBounce{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
 .pr-msg{animation:prIn .5s var(--pr-spring) both}
-@keyframes prIn{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+/* 入场只做轻微位移,不再叠 scale:缩放弹跳在长列表里会显得吵(改版同批) */
+@keyframes prIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+/* 元信息行 / 勾选条目:数字统一等宽,避免时长跳动时整行左右抖 */
+.pr .pr-meta{font-variant-numeric:tabular-nums;letter-spacing:.2px}
+.pr .pr-check{padding:11px 0;transition:background-color .2s ease,opacity .2s ease}
+.pr .pr-check:active{background:var(--pr-sel)}
+.pr .pr-tick{flex:none;width:15px;height:15px;margin-top:2px;border-radius:9999px;border:1px solid var(--pr-line-strong);display:inline-flex;align-items:center;justify-content:center;transition:background-color .18s ease,border-color .18s ease,transform .25s var(--pr-spring)}
+.pr .pr-tick svg{opacity:0;transition:opacity .15s ease}
+.pr .pr-tick[data-on="1"]{background:var(--pr-accent);border-color:var(--pr-accent);transform:scale(1.06)}
+.pr .pr-tick[data-on="1"] svg{opacity:1}
 .pr-thread-in{animation:prFade .35s ease-out both}
 @keyframes prFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .pr-rise{animation:prRise .6s var(--pr-ease) both}

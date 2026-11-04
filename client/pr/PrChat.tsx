@@ -372,11 +372,11 @@ export default function PrChatPage() {
         <button type="button" onClick={() => { void fetchThreads(); setDrawerOpen(true) }} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="会话列表">
           <MenuIcon />
         </button>
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
-          <img src="/pr-logo.png" alt="RunPaceFlow" className="h-5 w-5" />
+        <div className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px]" style={{ background: '#fff', border: '1px solid var(--pr-line-strong)' }}>
+          <img src="/pr-logo.png" alt="RunPaceFlow" className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-medium tracking-tight">{currentTitle}</div>
+          <div className="truncate text-[14px] font-medium">{currentTitle}</div>
           <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--pr-muted)' }}>
             <span className={`pr-dot-solid ${sending ? 'pr-pulse' : ''}`} style={{ background: 'var(--pr-accent)' }} />
             {sending ? '正在输入…' : 'PR · 你的运动伙伴'}
@@ -400,7 +400,7 @@ export default function PrChatPage() {
       {/* 消息区:滚到毛玻璃顶栏/输入区底下;底部留白按输入区实测高度走 */}
       <div
         ref={scrollRef}
-        className="pr-scroll h-full overflow-y-auto px-4"
+        className="pr-scroll h-full overflow-y-auto px-[18px]"
         style={{
           paddingTop: 'calc(72px + var(--pr-safe-top))',
           paddingBottom: 'calc(var(--pr-composer-h, 168px) + 12px)',

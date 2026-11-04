@@ -4,6 +4,7 @@ import AuthImage from './AuthImage'
 import Checklist from './Checklist'
 import { splitChecklist } from './tasklist'
 import { copyText } from './helpers'
+import { useIsDark } from './hooks'
 import { CheckIcon, CopyIcon, Spinner } from './icons'
 import MarkdownText from './MarkdownText'
 import type { HistoryState, Msg } from './types'
@@ -37,16 +38,8 @@ interface Props {
 export default function MessageList(props: Props) {
   const { messages, historyState, sending, staggerCount, threadKey, token } = props
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [isDark, setIsDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const isDark = useIsDark()
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const update = () => setIsDark(media.matches)
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [])
 
   useEffect(() => () => {
     if (copyTimer.current) clearTimeout(copyTimer.current)

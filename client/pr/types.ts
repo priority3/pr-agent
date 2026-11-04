@@ -55,3 +55,48 @@ export interface ServerMsg {
   content: string
   imageUrl?: string | null
 }
+
+/** 训练记录列表项(/api/pr/data/records) */
+export interface RecordItem {
+  id: string
+  title: string
+  type: string
+  startTime: string
+  distance: number
+  duration: number
+  averagePace: number | null
+  averageHeartRate: number | null
+  maxHeartRate: number | null
+  elevationGain: number | null
+  /** 已有当前有效的 PR 点评 */
+  reviewed: boolean
+}
+
+/** 本周汇总:days 是周一~周日各天的里程(米) */
+export interface WeekSummary {
+  start: string
+  count: number
+  distance: number
+  days: number[]
+}
+
+export interface SplitItem {
+  kilometer: number
+  duration: number
+  pace: number
+  distance: number
+  averageHeartRate: number | null
+}
+
+export interface ActivityDetail {
+  activity: RecordItem & { bestPace: number | null; calories: number | null; source: string; raceName: string | null }
+  splits: SplitItem[]
+  review: { content: string; createdAt: string; kind: string } | null
+}
+
+/** 账号/数据概况(/api/pr/data/account) */
+export interface AccountInfo {
+  device: { createdAt: string; lastUsedAt: string | null; expiresAt: string } | null
+  counts: { activities: number; splits: number; threads: number; memories: number }
+  sources: { source: string; count: number; lastAt: string | null }[]
+}

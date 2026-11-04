@@ -133,3 +133,18 @@ export function useElementHeightVar(ref: RefObject<HTMLElement | null>, varName:
     }
   }, [ref, varName])
 }
+
+/** 跟随系统深浅色。markstream 的代码高亮要一个布尔值,拿不到时才用 CSS 变量。 */
+export function useIsDark(): boolean {
+  const [isDark, setIsDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setIsDark(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
+
+  return isDark
+}

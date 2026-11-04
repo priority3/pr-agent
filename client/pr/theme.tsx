@@ -4,8 +4,8 @@ export function PrThemeStyle() {
   return (
     <style>{`
 .pr{
-  --pr-bg:#ffffff; --pr-text:#111114; --pr-text-2:#6b6b72;
-  --pr-muted:#a3a3ac; --pr-line:#ececee; --pr-line-strong:#e0e0e3;
+  --pr-bg:#ffffff; --pr-text:#111114; --pr-text-2:#545456;
+  --pr-muted:#707072; --pr-line:#ececee; --pr-line-strong:#e0e0e3;
   --pr-ai-bg:#f1f1f3; --pr-ai-text:#111114; --pr-user-bg:#141417; --pr-user-text:#f7f7f8;
   /* 改版后:AI 回复不再用气泡底色,用户消息降为浅灰小卡(见 MessageList 顶部说明) */
   --pr-user-card:#f4f4f5;
@@ -23,7 +23,7 @@ export function PrThemeStyle() {
 @media (prefers-color-scheme:dark){
   .pr{
     --pr-bg:#0b0b0d; --pr-text:#f2f2f4; --pr-text-2:#a0a0a8;
-    --pr-muted:#6b6b73; --pr-line:#232327; --pr-line-strong:#2c2c31;
+    --pr-muted:#969698; --pr-line:#232327; --pr-line-strong:#2c2c31;
     --pr-ai-bg:#1c1c20; --pr-ai-text:#f2f2f4; --pr-user-bg:#ededf0; --pr-user-text:#141417;
     --pr-user-card:#1e1e23;
     --pr-accent:#a3e635; --pr-accent-ink:#16240a; --pr-sel:#1c1c20;
@@ -100,6 +100,38 @@ export function PrThemeStyle() {
 /* 复制按钮:常驻但极低存在感,点后变对勾 */
 .pr .pr-copy{color:var(--pr-muted);opacity:.6}
 .pr .pr-copy:active{opacity:1}
+/* ── 记录 / 详情 / 设置三页的元件 ───────────────────────────────────────
+   规矩和对话页一致:用线不用卡片、数字等宽、彩色只表状态。
+   列表行 .pr-lrow 常被 <button> 复用 → 必须显式清掉浏览器默认 border/background/
+   border-radius,否则每行会多出一圈圆角框(pr-ui 模板里踩过同一个坑)。 */
+.pr .pr-lrow{display:flex;width:100%;align-items:flex-start;gap:12px;padding:12px 0;border:0;border-radius:0;background:transparent;border-bottom:1px solid var(--pr-line);text-align:left;color:inherit;transition:background-color .2s}
+.pr .pr-lrow:active{background:var(--pr-sel)}
+/* 行首的类型标记:26px 方角小格,不抢标题 */
+.pr .pr-mark{flex:none;width:26px;height:26px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;background:var(--pr-sel);color:var(--pr-text-2)}
+.pr .pr-num{font-variant-numeric:tabular-nums}
+/* 分组标题:11px/600,靠留白分段,不加底色不加线 */
+.pr .pr-grp{margin:24px 0 2px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--pr-text-2)}
+.pr .pr-grp:first-child{margin-top:4px}
+/* 周柱图:墨色柱 + 今天一根强调色。柱宽要明显窄于柱高,否则七天等量时看着像七个方块 */
+.pr .pr-bars{display:flex;gap:6px;height:56px;margin-top:14px}
+.pr .pr-bar-col{flex:1;display:flex;align-items:flex-end;justify-content:center;height:100%}
+.pr .pr-bars i{width:100%;max-width:16px;border-radius:2px;background:var(--pr-line-strong);min-height:3px;transition:height .5s var(--pr-ease)}
+.pr .pr-bars i.on{background:var(--pr-accent)}
+.pr .pr-bars-x{display:flex;gap:6px;margin-top:6px;font-size:10px;color:var(--pr-muted)}
+.pr .pr-bars-x span{flex:1;text-align:center}
+/* 表格:去竖线、数字右对齐等宽、行高靠 1px 线切 */
+.pr .pr-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.pr .pr-table th{font-size:11px;font-weight:600;color:var(--pr-text-2);text-align:left;padding:0 0 8px;border-bottom:1px solid var(--pr-line-strong)}
+.pr .pr-table td{padding:9px 0;border-bottom:1px solid var(--pr-line);font-size:13px;color:var(--pr-text)}
+.pr .pr-table tr:last-child td{border-bottom:0}
+.pr .pr-table .is-num{text-align:right}
+.pr .pr-caption{font-size:11px;font-weight:600;color:var(--pr-text-2);margin:26px 0 8px}
+/* 按钮:主按钮深色实心,强调色不当按钮底色 */
+.pr .pr-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--pr-line-strong);background:transparent;color:var(--pr-text);font-size:13px;transition:transform .25s var(--pr-spring),opacity .2s}
+.pr .pr-btn:active{transform:scale(.97)}
+.pr .pr-btn-primary{background:var(--pr-text);border-color:var(--pr-text);color:var(--pr-bg)}
+.pr .pr-btn-danger{color:var(--pr-danger);border-color:var(--pr-danger)}
+.pr .pr-btn:disabled{opacity:.45}
 @media (prefers-reduced-motion:reduce){
   .pr *,.pr-backdrop,.pr-drawer{animation-duration:.01ms !important;transition-duration:.01ms !important}
 }

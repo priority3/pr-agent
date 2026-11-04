@@ -45,6 +45,18 @@ export const CopyIcon = ({ size = 14, className }: IconProps) => (
 export const CheckIcon = ({ size = 14, className }: IconProps) => (
   <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
 )
+export const ChartIcon = ({ size = 22, className }: IconProps) => (
+  <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" /></svg>
+)
+export const GearIcon = ({ size = 20, className }: IconProps) => (
+  <svg {...svgBase(size)} className={className} aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+)
+export const ChevronLeftIcon = ({ size = 20, className }: IconProps) => (
+  <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+)
+export const ChevronRightIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...svgBase(size)} className={className} aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+)
 export const Spinner = ({ size = 20, className }: IconProps) => (
   <svg {...svgBase(size)} className={`pr-spin ${className ?? ''}`} aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56" /></svg>
 )

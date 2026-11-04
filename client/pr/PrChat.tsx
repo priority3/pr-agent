@@ -4,8 +4,9 @@ import { clearAuthImageCache } from './AuthImage'
 import Composer from './Composer'
 import { newId } from './helpers'
 import { useElementHeightVar, useStickyScroll, useVisualViewport } from './hooks'
-import { ArrowDownIcon, MenuIcon, PlusIcon } from './icons'
+import { ArrowDownIcon, ChartIcon, MenuIcon, PlusIcon } from './icons'
 import MessageList from './MessageList'
+import { navigate } from './router'
 import {
   clearStoredToken,
   readStoredToken,
@@ -134,6 +135,20 @@ export default function PrChatPage() {
 
   useEffect(() => () => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
+  }, [])
+
+  // 详情页「和 PR 聊聊这次」带过来的开场句:读一次就删,免得下次进对话又被塞一遍。
+  // 只填进输入框,发不发仍由用户决定。
+  useEffect(() => {
+    try {
+      const draft = localStorage.getItem('pr_chat_draft')
+      if (draft) {
+        localStorage.removeItem('pr_chat_draft')
+        setInput(draft)
+      }
+    } catch {
+      // 隐私模式读不了 localStorage:忽略,不影响正常对话
+    }
   }, [])
 
   // 拉会话列表 → 决定当前会话(本地存的优先,否则最近一条)。跨设备也能续上。
@@ -382,6 +397,9 @@ export default function PrChatPage() {
             {sending ? '正在输入…' : 'PR · 你的运动伙伴'}
           </div>
         </div>
+        <button type="button" onClick={() => navigate('#/records')} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="训练记录">
+          <ChartIcon />
+        </button>
         <button type="button" onClick={newChat} className="pr-tap rounded-lg p-1.5" style={{ color: 'var(--pr-text-2)' }} aria-label="新对话">
           <PlusIcon />
         </button>
